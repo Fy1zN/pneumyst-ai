@@ -11,6 +11,9 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Next.js](https://img.shields.io/badge/Next.js-frontend-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-UI-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
+[![Clerk](https://img.shields.io/badge/Clerk-auth-6C47FF?logo=clerk&logoColor=white)](https://clerk.com/)
+[![MySQL](https://img.shields.io/badge/MySQL-8-4479A1?logo=mysql&logoColor=white)](https://www.mysql.com/)
+[![Cloudflare R2](https://img.shields.io/badge/Cloudflare_R2-storage-F38020?logo=cloudflare&logoColor=white)](https://developers.cloudflare.com/r2/)
 [![Explainability](https://img.shields.io/badge/XAI-Occlusion_Sensitivity-8A2BE2)](#-explainability-occlusion-sensitivity)
 [![Status](https://img.shields.io/badge/status-in_development-orange)](#-implementation-ledger)
 [![Use](https://img.shields.io/badge/use-research_only-red)](#%EF%B8%8F-medical-disclaimer)
@@ -19,6 +22,7 @@
 [Overview](#-overview) •
 [Architecture](#-system-architecture) •
 [Workflow](#-analysis-workflow) •
+[Data & privacy](#-accounts-data-and-privacy) •
 [Datasets](#-datasets) •
 [Getting started](#-getting-started) •
 [Evaluation](#-evaluation-protocol) •
@@ -36,7 +40,7 @@
 
 ## 📌 Overview
 
-PNEUMYST AI analyses a chest X-ray and returns **screening scores** for five radiographic targets, a **visual explanation** of which image regions influenced each score, explicit **uncertainty and failure flags**, and a **structured report** for clinician review.
+PNEUMYST AI analyses a chest X-ray and returns **screening scores** for five radiographic targets, a **visual explanation** of which image regions influenced each score, explicit **uncertainty and failure flags**, and a **structured report** for clinician review. Signed-in users keep a private **history** of their analyses.
 
 It is built around three engineering principles:
 
@@ -62,6 +66,8 @@ It is built around three engineering principles:
 - 🔍 **Occlusion Sensitivity** heatmaps with validation, caching and adaptive GPU batching.
 - 🤖 **One orchestrator agent** that sequences six typed, allow-listed tools.
 - 🛡️ **Fault tolerance by design**: independent statuses, bounded retries, deadlines, safe error codes.
+- 🔐 **Secure accounts** with Clerk; every analysis is private to the user who created it.
+- 🗄️ **Persistent history** in MySQL, with heatmaps in a private Cloudflare R2 bucket.
 - 📊 **Honest evaluation** on held-out and external datasets from different hospitals.
 - 🖥️ **Clinical-style dashboard** in Next.js that shows uncertainty instead of hiding it.
 
@@ -72,12 +78,18 @@ It is built around three engineering principles:
 ```mermaid
 flowchart TB
     subgraph FE["Frontend · Next.js + Tailwind"]
+        LG["Sign in / sign up<br/>Clerk components"]
         U["Upload and preview"]
         R["Results dashboard<br/>scores · heatmap · report"]
+        H["History"]
     end
 
+    CL["Clerk<br/>authentication"]
+
     subgraph API["Backend · FastAPI + Pydantic"]
-        EP["/analyze · /models · /health"]
+        AU["Auth dependency<br/>verify Clerk JWT"]
+        EP["/analyze · /analyses · /models · /health"]
+        RP["Repositories<br/>queries scoped to user_id"]
     end
 
     subgraph AG["Layer C · Orchestrator agent"]
@@ -95,21 +107,27 @@ flowchart TB
         V["Validation · decoding<br/>resize · normalise"]
     end
 
-    subgraph SUP["Supporting services"]
+    subgraph DATA["Persistence"]
+        DB[("MySQL 8<br/>users · analyses")]
+        R2[("Cloudflare R2<br/>private heatmaps")]
         C[("Explanation cache")]
-        REG[("Model registry")]
-        LLM["LLM provider<br/>optional"]
     end
 
-    U --> EP --> O
+    LLM["LLM provider<br/>optional"]
+
+    LG <--> CL
+    U -- "Bearer JWT" --> AU --> EP --> O
+    AU -. "JWKS" .-> CL
     O --> V
     O --> TB & ML
     O --> OS
     O --> LOC
     OS <--> C
-    TB & ML <--> REG
     O -. "sanitised outputs only" .-> LLM
-    O --> EP --> R
+    EP --> RP --> DB
+    EP --> R2
+    EP --> R
+    H --> EP
 ```
 
 | Layer | Responsibility | Key rule |
@@ -117,7 +135,7 @@ flowchart TB
 | **A · Input** | Validate, decode, preprocess, record metadata | Reject invalid images before any model runs |
 | **B · Vision** | Classification, explanation, optional localization | Models produce every score; nothing is inferred from text |
 | **C · Agent** | Sequence tools, gather outputs, compile flags, write report | Cannot change scores, thresholds or evidence |
-| **D · API/UI** | Serve and display results | Show heatmaps only when valid; show missing models as unavailable |
+| **D · API/UI** | Authenticate, serve, persist and display results | Every request is tied to a verified user; missing models show as unavailable |
 
 ---
 
@@ -128,13 +146,20 @@ sequenceDiagram
     autonumber
     actor User
     participant UI as Next.js UI
+    participant Clerk
     participant API as FastAPI
     participant Agent as Orchestrator
     participant CV as Vision services
     participant XAI as Occlusion engine
+    participant DB as MySQL
+    participant R2 as Cloudflare R2
 
+    User->>UI: Sign in
+    UI->>Clerk: Authenticate
+    Clerk-->>UI: Session + JWT
     User->>UI: Upload chest X-ray
-    UI->>API: POST /analyze
+    UI->>API: POST /analyze (Bearer JWT)
+    API->>API: Verify JWT → user_id
     API->>Agent: Start analysis
     Agent->>CV: validate_image
     alt Invalid image
@@ -153,13 +178,15 @@ sequenceDiagram
         end
         Agent->>Agent: validate_predictions (fixed thresholds)
         Agent->>Agent: generate_report (LLM or deterministic)
-        Agent-->>API: Typed response
+        Agent-->>API: Typed result
+        API->>R2: Upload heatmap (private)
+        API->>DB: Save analysis row for user_id
     end
-    API-->>UI: JSON response
+    API-->>UI: JSON response + short-lived heatmap URL
     UI-->>User: Scores · heatmap · flags · report
 ```
 
-Partial success is a feature: if one model or the explanation fails, every other valid result is still returned with its own status.
+Partial success is a feature: if one model or the explanation fails, every other valid result is still returned and saved with its own status.
 
 ---
 
@@ -206,6 +233,7 @@ Every stage reports its own status, so one failure never hides or fakes another 
 | Localization | `success` · `unavailable` · `not_requested` |
 | Explainability | `success` · `unavailable` · `timeout` · `failed` · `not_requested` |
 | Report | `success` (LLM) · `success` (deterministic fallback) · `failed` |
+| Persistence | `saved` · `not_saved` (result still returned to the user) |
 
 | Error code | Meaning |
 |---|---|
@@ -214,6 +242,37 @@ Every stage reports its own status, so one failure never hides or fakes another 
 | `INFERENCE_TIMEOUT` / `INFERENCE_FAILED` | Model call exceeded its deadline or errored |
 | `EXPLANATION_TIMEOUT` / `EXPLANATION_OOM` | Heatmap stopped by deadline or GPU memory limits |
 | `INVALID_HEATMAP` / `EXPLANATION_DEGENERATE` | Map failed validation or carried no information |
+| `UNAUTHENTICATED` / `FORBIDDEN` | Missing or invalid token, or access to another user's analysis |
+| `STORAGE_FAILED` | Heatmap upload or database write failed; analysis result is still returned |
+
+---
+
+## 🔐 Accounts, data and privacy
+
+| Component | Service | Stores |
+|---|---|---|
+| Authentication | **Clerk** | User identity and sessions; passwords never touch our backend |
+| Database | **MySQL 8** | Users and analysis records: scores, statuses, flags, report, model versions |
+| File storage | **Cloudflare R2** (private bucket) | Heatmap overlays; original X-rays only if the user opts in |
+
+### Database tables
+
+| Table | Key columns |
+|---|---|
+| `users` | `id` (Clerk user ID, `VARCHAR(64)`), `email`, `consent_accepted_at`, `created_at` |
+| `analyses` | `id` (`CHAR(36)` UUID), `user_id`, `created_at`, `model_versions` (JSON), `scores` (JSON), `statuses` (JSON), `flags` (JSON), `report` (TEXT), `heatmap_key`, `image_key` (nullable), `image_hash` |
+
+All tables use `utf8mb4`, timestamps are stored in UTC, and schema changes go through Alembic migrations.
+
+### Privacy rules
+
+- **Results are saved by default; X-rays are not.** The original image is stored only if the user explicitly chooses to save it.
+- **Users only see their own data.** Every query is filtered by the verified `user_id`, and tests check that one user cannot read another user's analysis.
+- **Private storage only.** Heatmaps are served through presigned URLs that expire within minutes.
+- **Consent at sign-up.** Users confirm they will upload only de-identified or public research images.
+- **PNG/JPEG only.** DICOM is not accepted, so no patient metadata arrives in file headers.
+- **Real deletion.** Deleting an analysis removes its database row and its stored files.
+- **Nothing identifiable goes to the LLM.** Only sanitised scores and statuses are sent, and only when the LLM is enabled.
 
 ---
 
@@ -250,10 +309,13 @@ All datasets are public research datasets. **No images are stored in this reposi
 | **Machine learning** | Python 3.12 · PyTorch · Torchvision · scikit-learn · NumPy · Pandas · OpenCV · Pillow · Albumentations |
 | **Explainability** | Occlusion Sensitivity (NumPy + PyTorch) · Matplotlib overlays |
 | **Backend** | FastAPI · Uvicorn · Pydantic · OpenAPI/Swagger |
-| **Frontend** | Next.js · React · Tailwind CSS · Recharts |
+| **Authentication** | Clerk (Next.js components · JWT verification via JWKS in FastAPI) |
+| **Database** | MySQL 8 · SQLAlchemy 2.0 · PyMySQL · Alembic migrations |
+| **Object storage** | Cloudflare R2 (S3-compatible) · boto3 · presigned URLs |
+| **Frontend** | Next.js · React · Tailwind CSS · Recharts · `@clerk/nextjs` |
 | **Optional** | Ultralytics YOLOv8 (TB localization) · U-Net (pneumothorax segmentation) |
 | **Tooling** | Git · GitHub · Antigravity · VS Code |
-| **Deployment** | Vercel (frontend) · Hugging Face Spaces / Render (backend, CPU) |
+| **Deployment** | Vercel (frontend) · Hugging Face Spaces / Render (backend, CPU) · hosted MySQL (e.g. Aiven) · Cloudflare R2 |
 
 **Reference hardware:** Windows, NVIDIA RTX 3050 (4 GB VRAM). Training and inference are configured for limited GPU memory with mixed precision and adaptive batch sizes.
 
@@ -263,21 +325,26 @@ All datasets are public research datasets. **No images are stored in this reposi
 
 ```text
 pneumyst-ai/
-├── frontend/                 # Next.js dashboard
-│   ├── app/                  # pages: upload, results
+├── frontend/                 # Next.js dashboard (created with create-next-app)
+│   ├── app/                  # pages: sign-in, sign-up, upload, results, history
 │   ├── components/           # viewer, score cards, status chips, report
-│   ├── lib/                  # API client
+│   ├── lib/                  # API client (attaches Clerk token)
 │   └── types/                # TypeScript mirrors of backend schemas
 ├── backend/
 │   ├── app/
-│   │   ├── api/              # FastAPI routes
+│   │   ├── api/              # FastAPI routes: analyze, analyses, models, health
 │   │   ├── agents/           # single orchestrator + tool registry
-│   │   ├── core/             # config, logging, limits
+│   │   ├── auth/             # Clerk JWT verification → current user
+│   │   ├── core/             # config (.env), logging, limits
+│   │   ├── db/               # MySQL engine, session, SQLAlchemy table models
+│   │   ├── repositories/     # database queries, always scoped to user_id
+│   │   ├── storage/          # Cloudflare R2 client, presigned URLs
 │   │   ├── schemas/          # Pydantic request/response models
 │   │   ├── services/         # inference, explanation, report
-│   │   ├── models/           # model registry and loaders
+│   │   ├── ml_models/        # ML model registry and checkpoint loaders
 │   │   └── utils/
-│   ├── tests/                # unit, integration, API, failure-path tests
+│   ├── migrations/           # Alembic migrations
+│   ├── tests/                # unit, integration, API, auth and failure-path tests
 │   └── requirements.txt
 ├── ml/
 │   ├── configs/              # versioned training + threshold configs
@@ -304,6 +371,8 @@ pneumyst-ai/
 - Python 3.12
 - NVIDIA GPU with a recent driver (optional but recommended for training)
 - Node.js 18+ (for the frontend)
+- MySQL 8 (local install for development)
+- Free accounts on [Clerk](https://clerk.com/) and [Cloudflare](https://dash.cloudflare.com/) (for R2)
 - About 60 GB of free disk space for raw datasets (about 10 GB after preprocessing)
 
 ### 1. Clone and create the environment
@@ -322,29 +391,51 @@ Install PyTorch with the CUDA build matching your driver from [pytorch.org](http
 pip install -r backend/requirements.txt
 ```
 
-### 2. Configure
+### 2. Set up MySQL
+
+```sql
+CREATE DATABASE pneumyst CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'pneumyst'@'localhost' IDENTIFIED BY 'change-me';
+GRANT ALL PRIVILEGES ON pneumyst.* TO 'pneumyst'@'localhost';
+```
+
+### 3. Configure
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Set `DATA_ROOT` in `.env` to a folder **outside** the repository.
+Fill in `.env`:
 
-### 3. Download and preprocess data *(planned)*
+- `DATA_ROOT`: a folder **outside** the repository.
+- `DATABASE_URL`: your MySQL connection string.
+- `CLERK_SECRET_KEY`, `CLERK_JWKS_URL`, `CLERK_ISSUER`: from your Clerk application.
+- `R2_*`: your R2 bucket name, endpoint and API token.
+
+The frontend uses its own `frontend/.env.local` with `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and the API URL.
+
+### 4. Create the database tables *(planned)*
+
+```powershell
+cd backend
+alembic upgrade head
+```
+
+### 5. Download and preprocess data *(planned)*
 
 ```powershell
 python -m ml.preprocessing.build_manifests --dataset tbx11k
 python -m ml.preprocessing.build_manifests --dataset nih
 ```
 
-### 4. Train *(planned)*
+### 6. Train *(planned)*
 
 ```powershell
 python -m ml.training.train --config ml/configs/tb_densenet121.yaml
 python -m ml.training.train --config ml/configs/nih_multilabel_densenet121.yaml
 ```
 
-### 5. Run the backend *(planned)*
+### 7. Run the backend *(planned)*
 
 ```powershell
 uvicorn backend.app.main:app --reload
@@ -352,7 +443,7 @@ uvicorn backend.app.main:app --reload
 
 API docs: `http://localhost:8000/docs`
 
-### 6. Run the frontend *(planned)*
+### 8. Run the frontend *(planned)*
 
 ```powershell
 cd frontend
@@ -366,14 +457,18 @@ App: `http://localhost:3000`
 
 ## 🔌 API
 
+All endpoints except `/health` require a valid Clerk session token: `Authorization: Bearer <token>`.
+
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/health` | Service health and model load status |
 | `GET` | `/models` | Registered models, versions and availability per target |
-| `POST` | `/analyze` | Upload an X-ray; returns scores, explanation status, flags and report |
-| `GET` | `/artifacts/{id}` | Retrieve a validated, short-lived heatmap artifact |
+| `POST` | `/analyze` | Upload an X-ray; returns scores, explanation status, flags and report, and saves the result |
+| `GET` | `/analyses` | The signed-in user's analysis history |
+| `GET` | `/analyses/{id}` | One past analysis with a short-lived heatmap URL |
+| `DELETE` | `/analyses/{id}` | Delete an analysis and its stored files |
 
-Uploaded images are **not stored by default**, and internal file paths are never exposed.
+Internal file paths and storage keys are never exposed to the frontend.
 
 ---
 
@@ -416,11 +511,11 @@ gantt
     Occlusion Sensitivity        :a4, 2026-10-22, 2d
     NIH multi-label model        :a5, 2026-10-23, 2d
     section Backend
-    FastAPI                      :b1, 2026-10-25, 1d
+    FastAPI + Clerk + MySQL + R2 :b1, 2026-10-25, 1d
     Gate 2 backend works         :milestone, 2026-10-25, 0d
     Orchestrator agent           :b2, 2026-10-26, 1d
     section Frontend and release
-    Next.js dashboard            :c1, 2026-10-27, 2d
+    Next.js dashboard + login    :c1, 2026-10-27, 2d
     Tests and docs               :c2, 2026-10-29, 1d
     Deploy                       :c3, 2026-10-30, 1d
     v1.0                         :milestone, 2026-10-31, 0d
@@ -441,8 +536,11 @@ gantt
 | Explanation cache and fallbacks | ⬜ Not started |
 | Orchestrator agent and tools | ⬜ Not started |
 | FastAPI endpoints | ⬜ Not started |
-| Next.js dashboard | ⬜ Not started |
-| Test suite (18 required cases) | ⬜ Not started |
+| Clerk authentication | ⬜ Not started |
+| MySQL schema and migrations | ⬜ Not started |
+| Cloudflare R2 storage | ⬜ Not started |
+| Next.js dashboard and history | ⬜ Not started |
+| Test suite (18 required cases + auth isolation) | ⬜ Not started |
 | Deployment | ⬜ Not started |
 | Localization (optional) | ⬜ Not started |
 
@@ -457,6 +555,7 @@ Statuses move through **Not started → In progress → Implemented → Tested �
 - Models may learn shortcuts (for example, chest drains for pneumothorax); heatmaps are used to check for this but cannot rule it out.
 - Occlusion Sensitivity is a model-attribution aid, not a causal explanation and not clinical evidence.
 - No prospective or clinical validation has been performed.
+- The account system is designed for a research prototype and has not been audited for clinical data protection standards.
 
 ## ⚕️ Medical disclaimer
 
