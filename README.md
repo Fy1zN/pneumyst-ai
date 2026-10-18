@@ -41,7 +41,7 @@
 
 ## 📌 Overview
 
-PNEUMYST AI analyses a chest X-ray and returns **screening scores** for five radiographic targets, a **visual explanation** of which image regions influenced each score, explicit **uncertainty and failure flags**, and a **structured report** for clinician review. Signed-in users keep a private **history** of their analyses.
+PNEUMYST AI analyses a chest X-ray and returns **screening scores** for **15 chest X-ray findings**, a **visual explanation** of which image regions influenced each score, explicit **uncertainty and failure flags**, and a **structured report** for clinician review. Signed-in users keep a private **history** of their analyses.
 
 It is built around three engineering principles:
 
@@ -49,20 +49,45 @@ It is built around three engineering principles:
 2. **An unavailable model never becomes a fabricated negative result.**
 3. **An attractive heatmap is never mistaken for proof of a medical finding.**
 
-### Screening targets
+### Screening targets: 15 chest findings
 
-| # | Target | Model | Training data | Status |
-|:-:|---|---|---|:-:|
-| 1 | Tuberculosis (TB) | DenseNet-121 (binary) | TBX11K | 🟡 Planned |
-| 2 | Pneumonia | DenseNet-121 (multi-label) | NIH ChestX-ray14 | 🟡 Planned |
-| 3 | Pneumothorax | DenseNet-121 (multi-label) | NIH ChestX-ray14 | 🟡 Planned |
-| 4 | Pleural effusion | DenseNet-121 (multi-label) | NIH ChestX-ray14 | 🟡 Planned |
-| 5 | Lung nodule / mass | DenseNet-121 (multi-label) | NIH ChestX-ray14 | 🟡 Planned |
+| Group | Finding | Model | Training data | Status |
+|---|---|---|---|:-:|
+| **Infection** | Tuberculosis | DenseNet-121 (binary, separate model) | TBX11K | 🟡 Planned |
+| | Pneumonia | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
+| | Consolidation | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
+| | Infiltration | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
+| **Pleura** | Effusion | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
+| | Pneumothorax | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
+| | Pleural thickening | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
+| **Lung tissue** | Atelectasis | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
+| | Edema | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
+| | Emphysema | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
+| | Fibrosis | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
+| | Nodule | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
+| | Mass | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
+| **Heart and other** | Cardiomegaly | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
+| | Hernia | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
 
-> A nodule or mass score does **not** indicate lung cancer. Each target is a screening signal only.
+Two models produce all 15 scores: a TB specialist trained on TBX11K, and one multi-label model that outputs all 14 NIH findings in a single pass. Because they are trained on different data, the TB score is not directly comparable with the NIH scores.
+
+> These are radiographic findings, not diagnoses. A nodule or mass score does **not** indicate lung cancer, and a tuberculosis score does not confirm TB.
+
+### Reliability tiers
+
+Findings differ widely in how much and how reliable their training data is. Each finding is assigned a tier using **validation data only, before the test set is ever evaluated**, so weak findings are labelled honestly instead of hidden or cherry-picked.
+
+| Tier | Rule (validation set) | How the app shows it |
+|---|---|---|
+| ✅ **Validated** | AUROC ≥ 0.80 and enough positive cases | Score, threshold and heatmap |
+| 🧪 **Experimental** | AUROC 0.70–0.80 | Score and heatmap with an "experimental, lower reliability" badge |
+| ⛔ **Not supported** | AUROC < 0.70 or too few positive cases | Listed as "insufficient data"; no score shown |
+
+Tier assignments are stored in version-controlled config and listed in the model card.
 
 ### Key features
 
+- 🩻 **15 chest findings** across infection, pleura, lung tissue and heart, with honest reliability tiers.
 - 🧠 **Trained computer-vision models** do all image analysis; the LLM never invents predictions.
 - 🔍 **Occlusion Sensitivity** heatmaps with validation, caching and adaptive GPU batching.
 - 🤖 **One orchestrator agent** that sequences six typed, allow-listed tools.
@@ -323,8 +348,8 @@ All datasets are public research datasets. **No images are stored in this reposi
 | **NIH ChestX-ray14** | Train/test multi-label model | 112,120 X-rays, 30,805 patients | Public, no registration | [NIH Box](https://nihcc.app.box.com/v/ChestXray-NIHCC) |
 | **Shenzhen** | External TB test | 662 X-rays | Public | [NLM](https://data.lhncbc.nlm.nih.gov/public/Tuberculosis-Chest-X-ray-Datasets/) |
 | **Montgomery County** | External TB test | 138 X-rays | Public | [NLM](https://data.lhncbc.nlm.nih.gov/public/Tuberculosis-Chest-X-ray-Datasets/) |
-| **CheXpert** (validation set) | External test for multi-label model | Radiologist-labelled validation set | Free registration | [Stanford AIMI](https://aimi.stanford.edu/datasets/chexpert-chest-x-rays) |
-| **VinDr-CXR** | Optional future external test | — | Credentialed PhysioNet access | [PhysioNet](https://physionet.org/content/vindr-cxr/) |
+| **CheXpert** | Future work: external test for the NIH findings | Distributed only as a 471 GB archive | Free registration | [Stanford AIMI](https://aimi.stanford.edu/datasets/chexpert-chest-x-rays) |
+| **VinDr-CXR** | Future work: radiologist-labelled external test for both models | — | Credentialed PhysioNet access | [PhysioNet](https://physionet.org/content/vindr-cxr/) |
 
 ### Data engineering rules
 
@@ -334,7 +359,9 @@ All datasets are public research datasets. **No images are stored in this reposi
 - **Perceptual-hash deduplication** across datasets to prevent leakage.
 - TB is trained **only within TBX11K** to avoid learning the hospital instead of the disease.
 - NIH labels are NLP-mined from reports and are noisy; this is reported, not hidden.
-- `nodule_mass` is defined explicitly as `Nodule OR Mass`.
+- All 14 NIH findings are kept exactly as labelled; Nodule and Mass stay separate findings.
+- Labels are never shared across datasets: TBX11K images have no NIH labels, which means **unknown**, not negative.
+- NIH has no uncertainty labels; an absent finding means "not mentioned in the report", which is documented as label noise.
 - TBX11K test labels are held by the authors for an online challenge, so the local test split is carved from the official validation set and documented.
 
 ---
@@ -518,7 +545,8 @@ Internal file paths and storage keys are never exposed to the frontend.
 | Task | Metrics |
 |---|---|
 | Classification | AUROC · AUPRC · sensitivity · specificity · precision · F1 · confusion matrix · calibration · bootstrap CIs |
-| External generalisation | Same metrics on Shenzhen, Montgomery and CheXpert validation |
+| External generalisation | Same metrics on Shenzhen + Montgomery (TB); VinDr-CXR / CheXpert as future work for NIH findings |
+| Subgroups | Metrics by sex, age band and AP/PA view (NIH), and by dataset of origin |
 | Explainability | Repeatability · sensitivity to baseline and grid · score drop when top regions are occluded · overlap with TBX11K boxes · latency · peak memory · failure rate |
 | Localization *(optional)* | mAP@0.5 · mAP@0.5:0.95 · Dice · IoU |
 
@@ -532,8 +560,26 @@ Thresholds are chosen on validation data only and stored in version-controlled c
 |---|---|:-:|:-:|:-:|:-:|
 | TB · DenseNet-121 | TBX11K (local test) | — | — | — | — |
 | TB · DenseNet-121 | Shenzhen + Montgomery | — | — | — | — |
-| Multi-label · DenseNet-121 | NIH official test | — | — | — | — |
-| Multi-label · DenseNet-121 | CheXpert validation | — | — | — | — |
+| Multi-label · DenseNet-121 | NIH official test (mean of 14) | — | — | — | — |
+
+**Per finding (NIH official test)**
+
+| Finding | AUROC | AUPRC | Sensitivity | Specificity | Tier |
+|---|:-:|:-:|:-:|:-:|:-:|
+| Pneumonia | — | — | — | — | — |
+| Consolidation | — | — | — | — | — |
+| Infiltration | — | — | — | — | — |
+| Effusion | — | — | — | — | — |
+| Pneumothorax | — | — | — | — | — |
+| Pleural thickening | — | — | — | — | — |
+| Atelectasis | — | — | — | — | — |
+| Edema | — | — | — | — | — |
+| Emphysema | — | — | — | — | — |
+| Fibrosis | — | — | — | — | — |
+| Nodule | — | — | — | — | — |
+| Mass | — | — | — | — | — |
+| Cardiomegaly | — | — | — | — | — |
+| Hernia | — | — | — | — | — |
 
 ---
 
@@ -550,7 +596,7 @@ gantt
     TB model                     :a3, 2026-10-20, 2d
     Gate 1 TB verified           :milestone, 2026-10-21, 0d
     Occlusion Sensitivity        :a4, 2026-10-22, 2d
-    NIH multi-label model        :a5, 2026-10-23, 2d
+    NIH 14-finding model         :a5, 2026-10-23, 2d
     section Backend
     FastAPI + Clerk + MySQL + R2 :b1, 2026-10-25, 1d
     Gate 2 backend works         :milestone, 2026-10-25, 0d
@@ -572,7 +618,8 @@ gantt
 | Environment and GPU check | ⏳ In progress |
 | Dataset manifests and canonical labels | ⬜ Not started |
 | TB classifier | ⬜ Not started |
-| NIH multi-label classifier | ⬜ Not started |
+| NIH 14-finding classifier | ⬜ Not started |
+| Reliability tiers and per-finding thresholds | ⬜ Not started |
 | Occlusion Sensitivity engine | ⬜ Not started |
 | Explanation cache and fallbacks | ⬜ Not started |
 | Orchestrator agent and tools | ⬜ Not started |
@@ -597,6 +644,8 @@ Statuses move through **Not started → In progress → Implemented → Tested �
 - Models may learn shortcuts (for example, chest drains for pneumothorax); heatmaps are used to check for this but cannot rule it out.
 - Occlusion Sensitivity is a model-attribution aid, not a causal explanation and not clinical evidence.
 - No prospective or clinical validation has been performed.
+- Some findings have few or ambiguous training cases (for example Hernia, Pneumonia and Infiltration); these are expected to fall into the experimental or not-supported tiers.
+- The NIH findings are evaluated on NIH's own NLP-derived test labels; external radiologist-labelled validation (VinDr-CXR, CheXpert) is future work.
 - The account system is designed for a research prototype and has not been audited for clinical data protection standards.
 
 ## ⚕️ Medical disclaimer
