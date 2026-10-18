@@ -44,7 +44,7 @@ def summarize(df: pd.DataFrame) -> dict:
 
 
 def build_all(data_root: Path, datasets: list[str], seed: int = 42, tbx_val: float = 0.15,
-              nih_val: float = 0.10, drop_distance: int = 4, report_distance: int = 12) -> dict:
+              nih_val: float = 0.10, drop_distance: int = 6, report_distance: int = 12) -> dict:
     out_dir = data_root / "processed" / "manifests"
     out_dir.mkdir(parents=True, exist_ok=True)
     frames, skipped, summary = {}, [], {"seed": seed, "drop_distance": drop_distance,
@@ -97,7 +97,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--tbx-val", type=float, default=0.15, help="Fraction of TBX11K official train used as val")
     parser.add_argument("--nih-val", type=float, default=0.10, help="Fraction of NIH train_val PATIENTS used as val")
-    parser.add_argument("--drop-distance", type=int, default=4,
+    parser.add_argument("--drop-distance", type=int, default=6,
                         help="Max perceptual-hash distance (of 256 bits) treated as the same image across splits")
     parser.add_argument("--report-distance", type=int, default=12,
                         help="Max distance listed in tb_duplicates.csv for manual review")

@@ -137,6 +137,11 @@ def test_parse_reading_formats():
     assert parse_reading("Patient's Sex: F\nPatient's Age: 027Y\nnormal") == ("F", 27, "normal")
     sex, age, finding = parse_reading("female 8month\nnormal")
     assert sex == "F" and age == pytest.approx(0.67) and finding == "normal"
+    # Typos seen in the real Shenzhen / Montgomery readings.
+    assert parse_reading("male 42\nnormal") == ("M", 42, "normal")
+    assert parse_reading("femal 32yrs\nnormal") == ("F", 32, "normal")
+    assert parse_reading("female24yrs\nnormal") == ("F", 24, "normal")
+    assert parse_reading("Patient's Sex: O\nPatient's Age: 005Y\nnormal") == ("", 5, "normal")
 
 
 def test_build_all(data_root: Path):

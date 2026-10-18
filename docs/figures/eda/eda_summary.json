@@ -1,0 +1,309 @@
+{
+  "split_sizes": {
+    "tbx11k": {
+      "train": 5551,
+      "val": 980,
+      "test": 1800,
+      "external_test": 0
+    },
+    "shenzhen": {
+      "train": 0,
+      "val": 0,
+      "test": 0,
+      "external_test": 662
+    },
+    "montgomery": {
+      "train": 0,
+      "val": 0,
+      "test": 0,
+      "external_test": 138
+    },
+    "nih": {
+      "train": 77353,
+      "val": 9171,
+      "test": 25596,
+      "external_test": 0
+    }
+  },
+  "tb_balance": {
+    "tbx11k/test": {
+      "TB": 200,
+      "Not TB": 1600
+    },
+    "tbx11k/train": {
+      "TB": 510,
+      "Not TB": 5041
+    },
+    "tbx11k/val": {
+      "TB": 90,
+      "Not TB": 890
+    },
+    "shenzhen/external_test": {
+      "TB": 336,
+      "Not TB": 326
+    },
+    "montgomery/external_test": {
+      "TB": 58,
+      "Not TB": 80
+    }
+  },
+  "demographics": {
+    "tbx11k": {
+      "age_median": null,
+      "age_known": 0,
+      "sex": {
+        "unknown": 8331
+      }
+    },
+    "shenzhen": {
+      "age_median": 33.0,
+      "age_known": 661,
+      "sex": {
+        "M": 447,
+        "F": 209,
+        "unknown": 6
+      }
+    },
+    "montgomery": {
+      "age_median": 40.0,
+      "age_known": 138,
+      "sex": {
+        "F": 74,
+        "M": 63,
+        "unknown": 1
+      }
+    },
+    "nih": {
+      "age_median": 49.0,
+      "age_known": 112120,
+      "sex": {
+        "M": 63340,
+        "F": 48780
+      }
+    }
+  },
+  "nih_prevalence": {
+    "percent": {
+      "train": {
+        "Atelectasis": 9.47,
+        "Cardiomegaly": 1.98,
+        "Consolidation": 3.29,
+        "Edema": 1.59,
+        "Effusion": 9.96,
+        "Emphysema": 1.68,
+        "Fibrosis": 1.47,
+        "Hernia": 0.16,
+        "Infiltration": 15.88,
+        "Mass": 4.67,
+        "Nodule": 5.42,
+        "Pleural thickening": 2.61,
+        "Pneumonia": 1.0,
+        "Pneumothorax": 3.0
+      },
+      "val": {
+        "Atelectasis": 10.37,
+        "Cardiomegaly": 1.95,
+        "Consolidation": 3.35,
+        "Edema": 1.61,
+        "Effusion": 10.37,
+        "Emphysema": 1.38,
+        "Fibrosis": 1.23,
+        "Hernia": 0.16,
+        "Infiltration": 16.36,
+        "Mass": 4.56,
+        "Nodule": 5.64,
+        "Pleural thickening": 2.44,
+        "Pneumonia": 1.11,
+        "Pneumothorax": 3.49
+      },
+      "test": {
+        "Atelectasis": 12.81,
+        "Cardiomegaly": 4.18,
+        "Consolidation": 7.09,
+        "Edema": 3.61,
+        "Effusion": 18.2,
+        "Emphysema": 4.27,
+        "Fibrosis": 1.7,
+        "Hernia": 0.34,
+        "Infiltration": 23.88,
+        "Mass": 6.83,
+        "Nodule": 6.34,
+        "Pleural thickening": 4.47,
+        "Pneumonia": 2.17,
+        "Pneumothorax": 10.41
+      }
+    },
+    "test_to_train_ratio": {
+      "Atelectasis": 1.35,
+      "Cardiomegaly": 2.11,
+      "Consolidation": 2.16,
+      "Edema": 2.27,
+      "Effusion": 1.83,
+      "Emphysema": 2.55,
+      "Fibrosis": 1.16,
+      "Hernia": 2.06,
+      "Infiltration": 1.5,
+      "Mass": 1.46,
+      "Nodule": 1.17,
+      "Pleural thickening": 1.71,
+      "Pneumonia": 2.17,
+      "Pneumothorax": 3.48
+    }
+  },
+  "nih_top_cooccurrence": [
+    {
+      "finding": "Edema",
+      "also": "Infiltration",
+      "percent": 43.1
+    },
+    {
+      "finding": "Pneumonia",
+      "also": "Infiltration",
+      "percent": 38.1
+    },
+    {
+      "finding": "Cardiomegaly",
+      "also": "Effusion",
+      "percent": 35.7
+    },
+    {
+      "finding": "Effusion",
+      "also": "Infiltration",
+      "percent": 27.7
+    },
+    {
+      "finding": "Consolidation",
+      "also": "Effusion",
+      "percent": 27.0
+    },
+    {
+      "finding": "Consolidation",
+      "also": "Atelectasis",
+      "percent": 26.1
+    },
+    {
+      "finding": "Atelectasis",
+      "also": "Infiltration",
+      "percent": 25.6
+    },
+    {
+      "finding": "Consolidation",
+      "also": "Infiltration",
+      "percent": 25.2
+    },
+    {
+      "finding": "Atelectasis",
+      "also": "Effusion",
+      "percent": 25.1
+    },
+    {
+      "finding": "Edema",
+      "also": "Effusion",
+      "percent": 24.6
+    }
+  ],
+  "nih_findings_per_image": {
+    "0": 45232,
+    "1": 20480,
+    "2": 8293,
+    "3": 2585,
+    "4": 593,
+    "5": 128,
+    "6": 33,
+    "7": 7,
+    "9": 2
+  },
+  "nih_view": {
+    "overall_ap_percent": 34.9,
+    "ap_percent_among_positives": {
+      "Atelectasis": 47.3,
+      "Cardiomegaly": 33.1,
+      "Consolidation": 60.4,
+      "Edema": 85.9,
+      "Effusion": 44.3,
+      "Emphysema": 39.5,
+      "Fibrosis": 12.7,
+      "Hernia": 11.9,
+      "Infiltration": 43.9,
+      "Mass": 35.1,
+      "Nodule": 29.0,
+      "Pleural thickening": 22.7,
+      "Pneumonia": 45.6,
+      "Pneumothorax": 29.0
+    }
+  },
+  "nih_patients": {
+    "patients": 30805,
+    "median": 1.0,
+    "max": 184,
+    "patients_with_10plus": 2545
+  },
+  "image_properties": {
+    "montgomery": {
+      "n": 138,
+      "modes": {
+        "L": 138
+      },
+      "width_range": [
+        4020,
+        4892
+      ],
+      "height_range": [
+        4020,
+        4892
+      ],
+      "mean_intensity": 112.9,
+      "std_intensity": 82.4
+    },
+    "nih": {
+      "n": 300,
+      "modes": {
+        "L": 297,
+        "RGBA": 3
+      },
+      "width_range": [
+        1024,
+        1024
+      ],
+      "height_range": [
+        1024,
+        1024
+      ],
+      "mean_intensity": 127.0,
+      "std_intensity": 57.5
+    },
+    "shenzhen": {
+      "n": 300,
+      "modes": {
+        "P": 288,
+        "RGB": 12
+      },
+      "width_range": [
+        1225,
+        3001
+      ],
+      "height_range": [
+        989,
+        3001
+      ],
+      "mean_intensity": 156.1,
+      "std_intensity": 63.4
+    },
+    "tbx11k": {
+      "n": 300,
+      "modes": {
+        "RGB": 300
+      },
+      "width_range": [
+        512,
+        512
+      ],
+      "height_range": [
+        512,
+        512
+      ],
+      "mean_intensity": 134.4,
+      "std_intensity": 64.3
+    }
+  }
+}

@@ -1,0 +1,292 @@
+{
+  "color_modes": [
+    {
+      "index": 0,
+      "source": "nih",
+      "mode": "RGBA",
+      "sampled": 200,
+      "gray_percent": 100.0,
+      "max_channel_diff": 0,
+      "min_alpha": 255
+    },
+    {
+      "index": 1,
+      "source": "shenzhen",
+      "mode": "P",
+      "sampled": 200,
+      "gray_percent": 100.0,
+      "max_channel_diff": 0,
+      "min_alpha": 255
+    },
+    {
+      "index": 2,
+      "source": "shenzhen",
+      "mode": "RGB",
+      "sampled": 27,
+      "gray_percent": 100.0,
+      "max_channel_diff": 0,
+      "min_alpha": 255
+    },
+    {
+      "index": 3,
+      "source": "tbx11k",
+      "mode": "RGB",
+      "sampled": 200,
+      "gray_percent": 100.0,
+      "max_channel_diff": 0,
+      "min_alpha": 255
+    }
+  ],
+  "inversion": [
+    {
+      "index": 0,
+      "source": "montgomery",
+      "sampled": 138,
+      "suspect_inverted": 0,
+      "palette_inverted": 0
+    },
+    {
+      "index": 1,
+      "source": "nih",
+      "sampled": 400,
+      "suspect_inverted": 11,
+      "palette_inverted": 0
+    },
+    {
+      "index": 2,
+      "source": "shenzhen",
+      "sampled": 227,
+      "suspect_inverted": 0,
+      "palette_inverted": 108
+    },
+    {
+      "index": 3,
+      "source": "tbx11k",
+      "sampled": 200,
+      "suspect_inverted": 0,
+      "palette_inverted": 0
+    }
+  ],
+  "borders": [
+    {
+      "source": "montgomery",
+      "border_frac": 0.117,
+      "black_frac": 0.174,
+      "white_frac": 0.028,
+      "aspect": 0.822
+    },
+    {
+      "source": "nih",
+      "border_frac": 0.0,
+      "black_frac": 0.031,
+      "white_frac": 0.0,
+      "aspect": 1.0
+    },
+    {
+      "source": "shenzhen",
+      "border_frac": 0.0,
+      "black_frac": 0.007,
+      "white_frac": 0.0,
+      "aspect": 1.002
+    },
+    {
+      "source": "tbx11k",
+      "border_frac": 0.0,
+      "black_frac": 0.065,
+      "white_frac": 0.0,
+      "aspect": 1.0
+    }
+  ],
+  "bbox_sizes": [
+    {
+      "finding": "Nodule",
+      "boxes": 79,
+      "median_side_1024": 69.3,
+      "median_side_224": 15.2,
+      "median_side_320": 21.7,
+      "min_side_224": 6.4
+    },
+    {
+      "finding": "Mass",
+      "boxes": 85,
+      "median_side_1024": 124.4,
+      "median_side_224": 27.2,
+      "median_side_320": 38.9,
+      "min_side_224": 10.4
+    },
+    {
+      "finding": "Atelectasis",
+      "boxes": 180,
+      "median_side_1024": 140.2,
+      "median_side_224": 30.7,
+      "median_side_320": 43.8,
+      "min_side_224": 10.2
+    },
+    {
+      "finding": "Pneumothorax",
+      "boxes": 98,
+      "median_side_1024": 193.8,
+      "median_side_224": 42.4,
+      "median_side_320": 60.6,
+      "min_side_224": 8.1
+    },
+    {
+      "finding": "Effusion",
+      "boxes": 153,
+      "median_side_1024": 241.7,
+      "median_side_224": 52.9,
+      "median_side_320": 75.5,
+      "min_side_224": 9.1
+    },
+    {
+      "finding": "Infiltration",
+      "boxes": 123,
+      "median_side_1024": 243.7,
+      "median_side_224": 53.3,
+      "median_side_320": 76.1,
+      "min_side_224": 19.8
+    },
+    {
+      "finding": "Pneumonia",
+      "boxes": 120,
+      "median_side_1024": 244.9,
+      "median_side_224": 53.6,
+      "median_side_320": 76.5,
+      "min_side_224": 21.1
+    },
+    {
+      "finding": "Cardiomegaly",
+      "boxes": 146,
+      "median_side_1024": 423.3,
+      "median_side_224": 92.6,
+      "median_side_320": 132.3,
+      "min_side_224": 70.6
+    }
+  ],
+  "followup": [
+    {
+      "follow_up_bin": "0",
+      "Any finding": 30.5,
+      "Effusion": 4.0,
+      "Pneumothorax": 0.8,
+      "Infiltration": 11.2,
+      "Atelectasis": 5.4,
+      "images": 30805
+    },
+    {
+      "follow_up_bin": "1",
+      "Any finding": 38.5,
+      "Effusion": 7.4,
+      "Pneumothorax": 2.4,
+      "Infiltration": 13.2,
+      "Atelectasis": 9.1,
+      "images": 13302
+    },
+    {
+      "follow_up_bin": "2-4",
+      "Any finding": 45.6,
+      "Effusion": 11.9,
+      "Pneumothorax": 4.6,
+      "Infiltration": 16.0,
+      "Atelectasis": 12.2,
+      "images": 22037
+    },
+    {
+      "follow_up_bin": "5-9",
+      "Any finding": 52.6,
+      "Effusion": 15.9,
+      "Pneumothorax": 6.7,
+      "Infiltration": 18.4,
+      "Atelectasis": 13.8,
+      "images": 17758
+    },
+    {
+      "follow_up_bin": "10-19",
+      "Any finding": 60.2,
+      "Effusion": 19.8,
+      "Pneumothorax": 8.5,
+      "Infiltration": 24.5,
+      "Atelectasis": 13.3,
+      "images": 14011
+    },
+    {
+      "follow_up_bin": "20+",
+      "Any finding": 66.3,
+      "Effusion": 20.2,
+      "Pneumothorax": 9.3,
+      "Infiltration": 31.3,
+      "Atelectasis": 11.7,
+      "images": 14207
+    }
+  ],
+  "quality_thresholds": {
+    "min_sharpness_p1": 33.5,
+    "mean_brightness_p1": 83.2,
+    "mean_brightness_p99": 170.6
+  },
+  "reading_mismatches": [
+    {
+      "index": 17,
+      "image_id": "shenzhen:CHNCXR_0018_0.png",
+      "label_tb": 0,
+      "reading": "male 42 / normal",
+      "age": NaN,
+      "sex": "M",
+      "notes": "label_normal_but_reading_not_normal"
+    },
+    {
+      "index": 43,
+      "image_id": "shenzhen:CHNCXR_0044_0.png",
+      "label_tb": 0,
+      "reading": "femal 32yrs / normal",
+      "age": 32.0,
+      "sex": "",
+      "notes": "label_normal_but_reading_not_normal"
+    },
+    {
+      "index": 44,
+      "image_id": "shenzhen:CHNCXR_0045_0.png",
+      "label_tb": 0,
+      "reading": "femal 60yrs / normal",
+      "age": 60.0,
+      "sex": "",
+      "notes": "label_normal_but_reading_not_normal"
+    },
+    {
+      "index": 58,
+      "image_id": "shenzhen:CHNCXR_0059_0.png",
+      "label_tb": 0,
+      "reading": "normale",
+      "age": 68.0,
+      "sex": "M",
+      "notes": "label_normal_but_reading_not_normal"
+    },
+    {
+      "index": 95,
+      "image_id": "shenzhen:CHNCXR_0096_0.png",
+      "label_tb": 0,
+      "reading": "femal 69yrs / normal",
+      "age": 69.0,
+      "sex": "",
+      "notes": "label_normal_but_reading_not_normal"
+    },
+    {
+      "index": 262,
+      "image_id": "shenzhen:CHNCXR_0263_0.png",
+      "label_tb": 0,
+      "reading": "female24yrs / normal",
+      "age": 24.0,
+      "sex": "",
+      "notes": "label_normal_but_reading_not_normal"
+    },
+    {
+      "index": 59,
+      "image_id": "montgomery:MCUCXR_0080_0.png",
+      "label_tb": 0,
+      "reading": "Patient's Sex: O / normal",
+      "age": 5.0,
+      "sex": "",
+      "notes": "label_normal_but_reading_not_normal;pediatric"
+    }
+  ]
+}

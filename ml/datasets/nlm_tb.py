@@ -14,12 +14,13 @@ from ml.datasets.targets import TB, label_column
 SETS = {"shenzhen": "shenzhen", "montgomery": "montgomery"}
 FILE_RE = re.compile(r"^(?P<stem>[A-Za-z]+_\d{4})_(?P<label>[01])\.png$")
 
-_SEX_FIELD = re.compile(r"patient'?s\s+sex\s*:\s*([MF])", re.I)
-_SEX_WORD = re.compile(r"\b(female|male)\b", re.I)
+_SEX_FIELD = re.compile(r"patient'?s\s+sex\s*:\s*([A-Z])", re.I)
+_SEX_WORD = re.compile(r"\b(female|femal|male)(?=[^a-z]|$)", re.I)
 _AGE_FIELD = re.compile(r"patient'?s\s+age\s*:\s*0*(\d+)\s*([YMD])?", re.I)
 _AGE_YEARS = re.compile(r"(\d+)\s*(?:yrs?|years?|yr|y)\b", re.I)
 _AGE_MONTHS = re.compile(r"(\d+)\s*(?:months?|mons?|mths?|m)\b", re.I)
 _AGE_DAYS = re.compile(r"(\d+)\s*(?:days?|d)\b", re.I)
+_AGE_BARE = re.compile(r"\b(?:female|femal|male)\s*(\d{1,3})\s*$", re.I | re.M)
 
 
 def parse_reading(text: str) -> tuple[str, float | None, str]:
@@ -27,11 +28,11 @@ def parse_reading(text: str) -> tuple[str, float | None, str]:
     sex = ""
     m = _SEX_FIELD.search(text)
     if m:
-        sex = m.group(1).upper()
+        sex = m.group(1).upper() if m.group(1).upper() in ("M", "F") else ""
     else:
         m = _SEX_WORD.search(text)
         if m:
-            sex = "F" if m.group(1).lower() == "female" else "M"
+            sex = "M" if m.group(1).lower() == "male" else "F"
 
     age = None
     m = _AGE_FIELD.search(text)
@@ -39,7 +40,7 @@ def parse_reading(text: str) -> tuple[str, float | None, str]:
         value, unit = int(m.group(1)), (m.group(2) or "Y").upper()
         age = value if unit == "Y" else value / 12 if unit == "M" else value / 365
     else:
-        for pattern, divisor in ((_AGE_YEARS, 1), (_AGE_MONTHS, 12), (_AGE_DAYS, 365)):
+        for pattern, divisor in ((_AGE_YEARS, 1), (_AGE_MONTHS, 12), (_AGE_DAYS, 365), (_AGE_BARE, 1)):
             m = pattern.search(text)
             if m:
                 age = int(m.group(1)) / divisor
@@ -50,7 +51,8 @@ def parse_reading(text: str) -> tuple[str, float | None, str]:
         line = line.strip()
         if not line or _SEX_FIELD.search(line) or _AGE_FIELD.search(line):
             continue
-        if _SEX_WORD.search(line) and (_AGE_YEARS.search(line) or _AGE_MONTHS.search(line) or _AGE_DAYS.search(line)):
+        if _SEX_WORD.search(line) and (_AGE_YEARS.search(line) or _AGE_MONTHS.search(line)
+                                       or _AGE_DAYS.search(line) or _AGE_BARE.search(line)):
             continue
         finding_lines.append(line)
     return sex, (round(age, 2) if age is not None else None), " / ".join(finding_lines)
@@ -82,7 +84,7 @@ def build_nlm_set(data_root: Path, name: str) -> tuple[pd.DataFrame, list[dict]]
         if reading_path.exists():
             reading = reading_path.read_text(errors="replace")
             sex, age, finding = parse_reading(reading)
-            says_normal = finding.strip().lower() == "normal"
+            says_normal = finding.strip().lower().startswith("normal")
             if tb == 1 and says_normal:
                 notes.append("reading_says_normal_but_label_tb")
             if tb == 0 and finding and not says_normal:
