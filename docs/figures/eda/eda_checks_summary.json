@@ -49,7 +49,7 @@
       "index": 1,
       "source": "nih",
       "sampled": 400,
-      "suspect_inverted": 11,
+      "suspect_inverted": 12,
       "palette_inverted": 0
     },
     {
@@ -78,7 +78,7 @@
     {
       "source": "nih",
       "border_frac": 0.0,
-      "black_frac": 0.031,
+      "black_frac": 0.035,
       "white_frac": 0.0,
       "aspect": 1.0
     },
@@ -92,7 +92,7 @@
     {
       "source": "tbx11k",
       "border_frac": 0.0,
-      "black_frac": 0.065,
+      "black_frac": 0.073,
       "white_frac": 0.0,
       "aspect": 1.0
     }
@@ -171,7 +171,7 @@
       "Pneumothorax": 0.8,
       "Infiltration": 11.2,
       "Atelectasis": 5.4,
-      "images": 30805
+      "images": 30803
     },
     {
       "follow_up_bin": "1",
@@ -180,7 +180,7 @@
       "Pneumothorax": 2.4,
       "Infiltration": 13.2,
       "Atelectasis": 9.1,
-      "images": 13302
+      "images": 13301
     },
     {
       "follow_up_bin": "2-4",
@@ -189,7 +189,7 @@
       "Pneumothorax": 4.6,
       "Infiltration": 16.0,
       "Atelectasis": 12.2,
-      "images": 22037
+      "images": 22024
     },
     {
       "follow_up_bin": "5-9",
@@ -198,7 +198,7 @@
       "Pneumothorax": 6.7,
       "Infiltration": 18.4,
       "Atelectasis": 13.8,
-      "images": 17758
+      "images": 17754
     },
     {
       "follow_up_bin": "10-19",
@@ -207,7 +207,7 @@
       "Pneumothorax": 8.5,
       "Infiltration": 24.5,
       "Atelectasis": 13.3,
-      "images": 14011
+      "images": 14007
     },
     {
       "follow_up_bin": "20+",
@@ -215,78 +215,14 @@
       "Effusion": 20.2,
       "Pneumothorax": 9.3,
       "Infiltration": 31.3,
-      "Atelectasis": 11.7,
-      "images": 14207
+      "Atelectasis": 11.8,
+      "images": 14204
     }
   ],
   "quality_thresholds": {
-    "min_sharpness_p1": 33.5,
-    "mean_brightness_p1": 83.2,
-    "mean_brightness_p99": 170.6
+    "min_sharpness_p1": 34.7,
+    "mean_brightness_p1": 82.9,
+    "mean_brightness_p99": 175.3
   },
-  "reading_mismatches": [
-    {
-      "index": 17,
-      "image_id": "shenzhen:CHNCXR_0018_0.png",
-      "label_tb": 0,
-      "reading": "male 42 / normal",
-      "age": NaN,
-      "sex": "M",
-      "notes": "label_normal_but_reading_not_normal"
-    },
-    {
-      "index": 43,
-      "image_id": "shenzhen:CHNCXR_0044_0.png",
-      "label_tb": 0,
-      "reading": "femal 32yrs / normal",
-      "age": 32.0,
-      "sex": "",
-      "notes": "label_normal_but_reading_not_normal"
-    },
-    {
-      "index": 44,
-      "image_id": "shenzhen:CHNCXR_0045_0.png",
-      "label_tb": 0,
-      "reading": "femal 60yrs / normal",
-      "age": 60.0,
-      "sex": "",
-      "notes": "label_normal_but_reading_not_normal"
-    },
-    {
-      "index": 58,
-      "image_id": "shenzhen:CHNCXR_0059_0.png",
-      "label_tb": 0,
-      "reading": "normale",
-      "age": 68.0,
-      "sex": "M",
-      "notes": "label_normal_but_reading_not_normal"
-    },
-    {
-      "index": 95,
-      "image_id": "shenzhen:CHNCXR_0096_0.png",
-      "label_tb": 0,
-      "reading": "femal 69yrs / normal",
-      "age": 69.0,
-      "sex": "",
-      "notes": "label_normal_but_reading_not_normal"
-    },
-    {
-      "index": 262,
-      "image_id": "shenzhen:CHNCXR_0263_0.png",
-      "label_tb": 0,
-      "reading": "female24yrs / normal",
-      "age": 24.0,
-      "sex": "",
-      "notes": "label_normal_but_reading_not_normal"
-    },
-    {
-      "index": 59,
-      "image_id": "montgomery:MCUCXR_0080_0.png",
-      "label_tb": 0,
-      "reading": "Patient's Sex: O / normal",
-      "age": 5.0,
-      "sex": "",
-      "notes": "label_normal_but_reading_not_normal;pediatric"
-    }
-  ]
+  "reading_mismatches": []
 }

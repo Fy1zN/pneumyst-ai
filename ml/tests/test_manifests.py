@@ -159,8 +159,8 @@ def test_build_all(data_root: Path):
     assert reasons["tbx11k:health/missing.png"] == "missing_file"
     assert reasons["tbx11k:sick/sick0003.png"].startswith("label_conflict")
     # Exact copy of a test image removed from train; resized copy of an external image removed too.
-    assert reasons["tbx11k:sick/sick0005.png"] == "duplicate_of_image_in_more_important_split"
-    assert reasons["tbx11k:health/health0007.png"] == "duplicate_of_image_in_more_important_split"
+    assert reasons["tbx11k:sick/sick0005.png"] == "duplicate_cross_split"
+    assert reasons["tbx11k:health/health0007.png"] == "duplicate_cross_split"
     assert "shenzhen:CHNCXR_0005_0.png" in set(sz["image_id"])
     assert set(tbx.loc[tbx["official_split"] == "val", "split"]) == {"test"}
     assert set(tbx.loc[tbx["official_split"] == "train", "split"]) == {"train", "val"}

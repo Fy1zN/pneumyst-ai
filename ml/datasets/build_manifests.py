@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ml.datasets.common import resolve_duplicates
+from ml.datasets.common import hash_files, lsh_pairs, resolve_duplicates
 from ml.datasets.manifest import validate_manifest
 from ml.datasets.nih import build_nih
 from ml.datasets.nlm_tb import build_nlm_set
@@ -43,8 +43,33 @@ def summarize(df: pd.DataFrame) -> dict:
     return out
 
 
+def nih_hash_table(data_root: Path, nih: pd.DataFrame, compute: bool, workers: int) -> pd.DataFrame | None:
+    cache = data_root / "processed" / "manifests" / "nih_hashes.csv"
+    if cache.exists():
+        cached = pd.read_csv(cache, dtype=str, keep_default_na=False)
+        if set(nih["image_id"]) <= set(cached["image_id"]):
+            return cached
+    if not compute:
+        return None
+    results = hash_files([str(data_root / p) for p in nih["raw_path"]], workers, desc="hashing NIH")
+    table = pd.DataFrame({"image_id": nih["image_id"].to_numpy(),
+                          "sha256": [r[0] for r in results], "phash": [r[1] for r in results]})
+    table.to_csv(cache, index=False)
+    return table
+
+
+def dedupe_nih(nih: pd.DataFrame, hashes: pd.DataFrame, drop_distance: int) -> tuple[pd.DataFrame, list[dict], pd.DataFrame]:
+    nih = nih.drop(columns=["sha256", "phash"]).merge(hashes[["image_id", "sha256", "phash"]], on="image_id", how="left")
+    nih[["sha256", "phash"]] = nih[["sha256", "phash"]].fillna("")
+    hashed = nih.index[nih["phash"] != ""].tolist()
+    found, _ = lsh_pairs(nih.loc[hashed, "phash"].tolist(), max_distance=min(drop_distance, 7))
+    pairs = [(hashed[a], hashed[c], d) for a, c, d in found]
+    return resolve_duplicates(nih, drop_distance, drop_distance, pairs=pairs)
+
+
 def build_all(data_root: Path, datasets: list[str], seed: int = 42, tbx_val: float = 0.15,
-              nih_val: float = 0.10, drop_distance: int = 6, report_distance: int = 12) -> dict:
+              nih_val: float = 0.10, drop_distance: int = 6, report_distance: int = 12,
+              hash_nih: bool = False, workers: int = 4) -> dict:
     out_dir = data_root / "processed" / "manifests"
     out_dir.mkdir(parents=True, exist_ok=True)
     frames, skipped, summary = {}, [], {"seed": seed, "drop_distance": drop_distance,
@@ -73,6 +98,16 @@ def build_all(data_root: Path, datasets: list[str], seed: int = 42, tbx_val: flo
     if "nih" in datasets:
         frames["nih"], s, bboxes = build_nih(data_root, nih_val, seed)
         skipped += s
+        hashes = nih_hash_table(data_root, frames["nih"], hash_nih, workers)
+        if hashes is None:
+            summary["nih_duplicates"] = "skipped: no nih_hashes.csv (run EDA section 23 or use --hash-nih)"
+        else:
+            frames["nih"], removals, nih_dups = dedupe_nih(frames["nih"], hashes, drop_distance)
+            skipped += removals
+            nih_dups.to_csv(out_dir / "nih_duplicates.csv", index=False)
+            summary["nih_duplicates"] = {"pairs": int(len(nih_dups)), "removed": len(removals),
+                                         "removed_cross_split": sum(r["reason"] == "duplicate_cross_split" for r in removals)}
+        bboxes = bboxes[bboxes["image_id"].isin(frames["nih"]["image_id"])].reset_index(drop=True)
         bboxes.to_csv(out_dir / "nih_bboxes.csv", index=False)
         summary["nih_bboxes"] = {"boxes": int(len(bboxes)), "by_split": bboxes["split"].value_counts().to_dict(),
                                  "label_missing_for_box": int((~bboxes["label_present"]).sum())}
@@ -101,10 +136,12 @@ def main() -> None:
                         help="Max perceptual-hash distance (of 256 bits) treated as the same image across splits")
     parser.add_argument("--report-distance", type=int, default=12,
                         help="Max distance listed in tb_duplicates.csv for manual review")
+    parser.add_argument("--hash-nih", action="store_true", help="Hash all NIH images if nih_hashes.csv is missing")
+    parser.add_argument("--workers", type=int, default=4)
     args = parser.parse_args()
 
     summary = build_all(data_root(), args.datasets, args.seed, args.tbx_val, args.nih_val,
-                        args.drop_distance, args.report_distance)
+                        args.drop_distance, args.report_distance, args.hash_nih, args.workers)
     print(json.dumps(summary, indent=2, default=str))
 
 

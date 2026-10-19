@@ -1,0 +1,49 @@
+{
+  "tbx11k_class_probe": [
+    {
+      "comparison": "health vs sick",
+      "none": 0.985,
+      "percentile": 0.984,
+      "clahe": 0.992
+    },
+    {
+      "comparison": "health vs tb",
+      "none": 0.976,
+      "percentile": 0.963,
+      "clahe": 0.977
+    },
+    {
+      "comparison": "sick vs tb",
+      "none": 0.938,
+      "percentile": 0.941,
+      "clahe": 0.963
+    }
+  ],
+  "origin_probe": [
+    {
+      "comparison": "montgomery vs shenzhen",
+      "none": 1.0,
+      "percentile": 1.0,
+      "clahe": 1.0
+    },
+    {
+      "comparison": "montgomery vs tbx11k",
+      "none": 1.0,
+      "percentile": 1.0,
+      "clahe": 1.0
+    },
+    {
+      "comparison": "shenzhen vs tbx11k",
+      "none": 0.994,
+      "percentile": 0.989,
+      "clahe": 0.996
+    }
+  ],
+  "nih_duplicates": {
+    "hashed": 112093,
+    "unreadable": 0,
+    "pairs": 0,
+    "oversized_buckets_skipped": 0,
+    "by_kind": {}
+  }
+}
