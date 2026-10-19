@@ -25,6 +25,7 @@
 [Data & privacy](#-accounts-data-and-privacy) •
 [Reports](#-screening-report-and-audit-trail) •
 [Datasets](#-datasets) •
+[Data findings](#-data-findings-eda) •
 [Getting started](#-getting-started) •
 [Evaluation](#-evaluation-protocol) •
 [Roadmap](#-roadmap) •
@@ -342,27 +343,90 @@ Analysis ID, user ID, timestamps, image hash, model names, versions and checkpoi
 
 All datasets are public research datasets. **No images are stored in this repository.** Download each from its official source and accept its terms.
 
-| Dataset | Role | Size | Access | Source |
-|---|---|---|---|---|
-| **TBX11K** | Train/validate TB model | 11,200 X-rays with TB boxes | Public download | [GitHub](https://github.com/yun-liu/tuberculosis) |
-| **NIH ChestX-ray14** | Train/test multi-label model | 112,120 X-rays, 30,805 patients | Public, no registration | [NIH Box](https://nihcc.app.box.com/v/ChestXray-NIHCC) |
-| **Shenzhen** | External TB test | 662 X-rays | Public | [NLM](https://data.lhncbc.nlm.nih.gov/public/Tuberculosis-Chest-X-ray-Datasets/) |
-| **Montgomery County** | External TB test | 138 X-rays | Public | [NLM](https://data.lhncbc.nlm.nih.gov/public/Tuberculosis-Chest-X-ray-Datasets/) |
-| **CheXpert** | Future work: external test for the NIH findings | Distributed only as a 471 GB archive | Free registration | [Stanford AIMI](https://aimi.stanford.edu/datasets/chexpert-chest-x-rays) |
-| **VinDr-CXR** | Future work: radiologist-labelled external test for both models | — | Credentialed PhysioNet access | [PhysioNet](https://physionet.org/content/vindr-cxr/) |
+| Dataset | Role | Size | Usable after cleaning | Access | Source |
+|---|---|---|---|---|---|
+| **TBX11K** | Train / val / test for the TB model | 11,200 X-rays with TB boxes | **8,248** (5,479 / 977 / 1,792) | Public download | [GitHub](https://github.com/yun-liu/tuberculosis) |
+| **NIH ChestX-ray14** | Train / val / test for the 14-finding model | 112,120 X-rays, 30,805 patients | **112,093** (77,335 / 9,170 / 25,588) | Public, no registration | [NIH Box](https://nihcc.app.box.com/v/ChestXray-NIHCC) |
+| **Shenzhen** | External TB test | 662 X-rays | **662** (336 TB) | Public | [NLM](https://data.lhncbc.nlm.nih.gov/public/Tuberculosis-Chest-X-ray-Datasets/) |
+| **Montgomery County** | External TB test | 138 X-rays | **138** (58 TB) | Public | [NLM](https://data.lhncbc.nlm.nih.gov/public/Tuberculosis-Chest-X-ray-Datasets/) |
+| **CheXpert** | Future work: external test for the NIH findings | Distributed only as a 471 GB archive | — | Free registration | [Stanford AIMI](https://aimi.stanford.edu/datasets/chexpert-chest-x-rays) |
+| **VinDr-CXR** | Future work: radiologist-labelled external test for both models | — | — | Credentialed PhysioNet access | [PhysioNet](https://physionet.org/content/vindr-cxr/) |
+
+**121,141 usable images** in total, after removing duplicates and leaked copies. TBX11K's own test set (hidden labels) and its bundled extra images are not used.
 
 ### Data engineering rules
 
 - Every image keeps its **source, image ID, patient ID, original label, canonical label, annotation type, split, uncertainty flag and label source**.
 - **Missing labels are never treated as negative.**
 - **Patient-level splits** wherever patient IDs exist; official splits are preferred.
-- **Perceptual-hash deduplication** across datasets to prevent leakage.
+- **Exact and perceptual-hash deduplication** (256-bit pHash, ≤ 6 bits apart) within and across datasets; one copy of every duplicate is kept, and the copy in the more important split (external test > test > val > train) wins. NIH's 112k images are searched with a banded hash index that is exhaustive at this threshold.
+- Every skipped or removed image is logged with a reason; nothing is dropped silently.
 - TB is trained **only within TBX11K** to avoid learning the hospital instead of the disease.
 - NIH labels are NLP-mined from reports and are noisy; this is reported, not hidden.
 - All 14 NIH findings are kept exactly as labelled; Nodule and Mass stay separate findings.
 - Labels are never shared across datasets: TBX11K images have no NIH labels, which means **unknown**, not negative.
 - NIH has no uncertainty labels; an absent finding means "not mentioned in the report", which is documented as label noise.
 - TBX11K test labels are held by the authors for an online challenge, so the local test split is carved from the official validation set and documented.
+
+---
+
+## 📊 Data findings (EDA)
+
+A 23-section exploratory analysis ([`notebooks/eda.ipynb`](notebooks/eda.ipynb), charts in [`docs/figures/eda/`](docs/figures/eda/)) checked every dataset before any model was trained. Patient X-rays are kept out of the repository; only aggregate charts are published.
+
+### Data-quality problems found and fixed
+
+| Problem | Scale | Fix |
+|---|---|---|
+| TBX11K images duplicated across its official train / val / test split | 72 images | Removed from the less important split |
+| TBX11K images duplicated within a split | 80 images | One copy kept |
+| NIH images filed under **two different patient IDs**, one copy in train and one in test | 4 images | Train copies removed |
+| Other NIH duplicates (same patient re-filed, or same split) | 23 images | One copy kept |
+| Shenzhen palette images with **inverted colour tables** | 108 of 227 sampled | Always converted through the palette |
+| "Label conflicts" in Shenzhen / Montgomery readings | 7 → **0** | Were typos (`femal`, `female24yrs`, `normale`); parser fixed |
+
+After cleaning, a full re-scan of all 112,093 NIH images finds **zero** remaining duplicate pairs.
+
+### Risks the models must be tested against
+
+| Risk | Evidence | Mitigation |
+|---|---|---|
+| 🔴 **TBX11K acquisition shortcut** | A linear model on brightness, contrast, sharpness and borders alone separates healthy vs TB with **AUROC 0.976** (healthy vs sick 0.985). Percentile normalization and CLAHE do not reduce it. | Photometric and blur augmentation during TB training; external test as the primary TB score; metrics within sharpness / brightness bands; heatmap review |
+| 🟠 **AP-view shortcut** | Edema is **11× more common on AP than PA** images (3.9% vs 0.3%); consolidation 2.8× | AUROC reported separately for AP and PA images |
+| 🟠 **Hospital fingerprints** | Each dataset is 99–100% identifiable from global image statistics, with or without normalization | External test reported separately; domain shift documented |
+| 🟡 **Sicker official NIH test set** | Pneumothorax 3.0% in train vs 10.4% in test; AP views 35% → 57% | Explained by follow-up scans (below); thresholds chosen on validation only |
+| 🟡 **Rare findings** | Hernia: 126 train, **15 validation** positives | Reliability tiers decided on validation |
+
+<p align="center">
+  <img src="docs/figures/eda/03_nih_prevalence_by_split.png" width="48%" alt="NIH prevalence by split" />
+  <img src="docs/figures/eda/17_positivity_vs_followup.png" width="48%" alt="Positivity vs follow-up number" />
+</p>
+
+**Why the NIH test set is sicker:** the share of abnormal scans rises from **31% on a patient's first scan to 66% by the 20th+**, and the official test set averages **9.2 scans per patient** versus 3.1 in train.
+
+<p align="center">
+  <img src="docs/figures/eda/06_nih_ap_view_by_finding.png" width="48%" alt="AP-view share per finding" />
+  <img src="docs/figures/eda/20_tbx11k_class_stats.png" width="48%" alt="TBX11K global stats by class" />
+</p>
+
+### Other findings
+
+- **Formats:** NIH has 519 RGBA images, Shenzhen 635 palette + 27 RGB, TBX11K is all RGB, Montgomery grayscale. Every colour-mode image is genuinely grayscale (channel difference 0, fully opaque).
+- **Shapes and sizes:** NIH 1024² and TBX11K 512² are square; Shenzhen (989–3001 px) and Montgomery (4020–4892 px, aspect 0.82, ~12% flat border) are not.
+- **Lesion size:** NIH nodule boxes have a median side of **15 px at 224 px input vs 22 px at 320 px**; the smallest is 6 px.
+- **Co-occurrence:** 43% of edema images also carry infiltration, 38% of pneumonia images too, and 36% of cardiomegaly images carry effusion.
+- **Demographics:** NIH ~56% male, median age 49; Shenzhen 68% male, median 33 (31 children); Montgomery 54% female, median 40 (17 children); TBX11K has no demographics.
+- **Image quality:** starting thresholds for the app's quality check are sharpness < 33.5 and mean brightness outside 83–171 (1st / 99th percentiles), used as **warnings**, not rejections.
+
+### Preprocessing decisions
+
+| Step | Setting | Based on |
+|---|---|---|
+| Decode | PIL → 8-bit grayscale; palette images through their palette | Formats, inversion check |
+| Borders | Trim perfectly flat rows / columns | Border check (Montgomery) |
+| Shape | Pad to square, never stretch | Size and aspect check |
+| Size | Long side **320 px** | Lesion-size check |
+| Intensity | Stored as-is; fixed ImageNet mean / std at load time; no CLAHE | Shortcut and fingerprint probes |
 
 ---
 
@@ -414,15 +478,19 @@ pneumyst-ai/
 │   └── requirements.txt
 ├── ml/
 │   ├── configs/              # versioned training + threshold configs
-│   ├── datasets/             # dataset loaders + canonical label mapping
+│   ├── datasets/             # manifest builders, label mapping, dedupe
+│   ├── eda/                  # EDA charts, data checks, shortcut probes
 │   ├── preprocessing/        # validation, resizing, manifests, dedupe
 │   ├── training/             # training loops with safe checkpointing
 │   ├── evaluation/           # metrics, calibration, external tests
 │   ├── inference/            # standalone inference utilities
+│   ├── tests/                # data pipeline and EDA tests
 │   └── checkpoints/          # local only, git-ignored
-├── docs/                     # architecture, model cards, evaluation, limitations
+├── notebooks/                # eda.ipynb (X-ray outputs stripped before commit)
+├── docs/                     # EDA figures, architecture, model cards, limitations
 ├── .env.example
 ├── .gitignore
+├── requirements.txt
 └── README.md
 ```
 
@@ -439,7 +507,7 @@ pneumyst-ai/
 - Node.js 18+ (for the frontend)
 - MySQL 8 (local install for development)
 - Free accounts on [Clerk](https://clerk.com/) and [Cloudflare](https://dash.cloudflare.com/) (for R2)
-- About 60 GB of free disk space for raw datasets (about 10 GB after preprocessing)
+- About 50 GB of free disk space for the raw datasets, plus ~10 GB for processed images
 
 ### 1. Clone and create the environment
 
@@ -454,7 +522,7 @@ python -m venv .venv
 Install PyTorch with the CUDA build matching your driver from [pytorch.org](https://pytorch.org/get-started/locally/), then:
 
 ```powershell
-pip install -r backend/requirements.txt
+pip install -r requirements.txt
 ```
 
 ### 2. Set up MySQL
@@ -487,21 +555,35 @@ cd backend
 alembic upgrade head
 ```
 
-### 5. Download and preprocess data *(planned)*
+### 5. Build the dataset manifests
+
+Download the datasets into `DATA_ROOT/raw/` (`tbx11k/`, `nih-cxr14/`, `shenzhen/`, `montgomery/`), then:
 
 ```powershell
-python -m ml.preprocessing.build_manifests --dataset tbx11k
-python -m ml.preprocessing.build_manifests --dataset nih
+python -m pytest ml/tests -q
+python -m ml.datasets.build_manifests --hash-nih
 ```
 
-### 6. Train *(planned)*
+This validates every image, builds leak-free splits and writes manifests, duplicate reports and a summary to `DATA_ROOT/processed/manifests/`. `--hash-nih` fingerprints all NIH images once (~15 min) and caches the result.
+
+### 6. Explore the data
+
+Open `notebooks/eda.ipynb` with the `.venv` kernel and run all cells. Charts are saved to `docs/figures/eda/`.
+
+### 7. Preprocess images *(planned)*
+
+```powershell
+python -m ml.preprocessing.preprocess
+```
+
+### 8. Train *(planned)*
 
 ```powershell
 python -m ml.training.train --config ml/configs/tb_densenet121.yaml
 python -m ml.training.train --config ml/configs/nih_multilabel_densenet121.yaml
 ```
 
-### 7. Run the backend *(planned)*
+### 9. Run the backend *(planned)*
 
 ```powershell
 uvicorn backend.app.main:app --reload
@@ -509,7 +591,7 @@ uvicorn backend.app.main:app --reload
 
 API docs: `http://localhost:8000/docs`
 
-### 8. Run the frontend *(planned)*
+### 10. Run the frontend *(planned)*
 
 ```powershell
 cd frontend
@@ -547,6 +629,7 @@ Internal file paths and storage keys are never exposed to the frontend.
 | Classification | AUROC · AUPRC · sensitivity · specificity · precision · F1 · confusion matrix · calibration · bootstrap CIs |
 | External generalisation | Same metrics on Shenzhen + Montgomery (TB); VinDr-CXR / CheXpert as future work for NIH findings |
 | Subgroups | Metrics by sex, age band and AP/PA view (NIH), and by dataset of origin |
+| Shortcut checks | TB AUROC within sharpness / brightness bands; external vs internal TB gap; NIH AP vs PA gap |
 | Explainability | Repeatability · sensitivity to baseline and grid · score drop when top regions are occluded · overlap with TBX11K boxes · latency · peak memory · failure rate |
 | Localization *(optional)* | mAP@0.5 · mAP@0.5:0.95 · Dice · IoU |
 
@@ -615,8 +698,12 @@ gantt
 | Feature | Status |
 |---|:-:|
 | Repository skeleton | ✅ Implemented |
-| Environment and GPU check | ⏳ In progress |
-| Dataset manifests and canonical labels | ⬜ Not started |
+| Environment and GPU check | ✅ Verified (PyTorch 2.11, CUDA 12.8, RTX 3050) |
+| Data download and integrity checks | ✅ Verified (all archives, counts match official) |
+| Dataset manifests and canonical labels | ✅ Tested |
+| Duplicate and leak detection (all datasets) | ✅ Tested |
+| Exploratory data analysis (23 sections) | ✅ Implemented |
+| Image preprocessing (320 px) | ⏳ Next |
 | TB classifier | ⬜ Not started |
 | NIH 14-finding classifier | ⬜ Not started |
 | Reliability tiers and per-finding thresholds | ⬜ Not started |
@@ -644,6 +731,8 @@ Statuses move through **Not started → In progress → Implemented → Tested �
 - Models may learn shortcuts (for example, chest drains for pneumothorax); heatmaps are used to check for this but cannot rule it out.
 - Occlusion Sensitivity is a model-attribution aid, not a causal explanation and not clinical evidence.
 - No prospective or clinical validation has been performed.
+- TBX11K classes differ strongly in acquisition statistics (brightness, contrast, sharpness), so internal TB scores may overstate real performance; the external Shenzhen / Montgomery test is the primary TB measure.
+- TBX11K has no patient IDs, so two different scans of one patient could fall into different splits; only identical or near-identical images can be detected.
 - Some findings have few or ambiguous training cases (for example Hernia, Pneumonia and Infiltration); these are expected to fall into the experimental or not-supported tiers.
 - The NIH findings are evaluated on NIH's own NLP-derived test labels; external radiologist-labelled validation (VinDr-CXR, CheXpert) is future work.
 - The account system is designed for a research prototype and has not been audited for clinical data protection standards.
