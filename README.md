@@ -372,7 +372,7 @@ All datasets are public research datasets. **No images are stored in this reposi
 
 ## 📊 Data findings (EDA)
 
-A 23-section exploratory analysis ([`notebooks/eda.ipynb`](notebooks/eda.ipynb), charts in [`docs/figures/eda/`](docs/figures/eda/)) checked every dataset before any model was trained. Patient X-rays are kept out of the repository; only aggregate charts are published.
+A 23-section exploratory analysis ([`notebooks/eda.ipynb`](notebooks/eda.ipynb), charts in [`docs/figures/eda/`](docs/figures/eda/)) checked every dataset before any model was trained. Sample X-rays are shown in the notebook for visual validation; the charts in `docs/figures/eda/` are aggregate only.
 
 ### Data-quality problems found and fixed
 
@@ -380,12 +380,17 @@ A 23-section exploratory analysis ([`notebooks/eda.ipynb`](notebooks/eda.ipynb),
 |---|---|---|
 | TBX11K images duplicated across its official train / val / test split | 72 images | Removed from the less important split |
 | TBX11K images duplicated within a split | 80 images | One copy kept |
-| NIH images filed under **two different patient IDs**, one copy in train and one in test | 4 images | Train copies removed |
-| Other NIH duplicates (same patient re-filed, or same split) | 23 images | One copy kept |
+| NIH images filed under **two different patient IDs**, one copy in train and one in test | 3 images | Train copies removed |
+| Other NIH duplicates (same patient re-filed, or same split) | 24 images | One copy kept |
 | Shenzhen palette images with **inverted colour tables** | 108 of 227 sampled | Always converted through the palette |
 | "Label conflicts" in Shenzhen / Montgomery readings | 7 → **0** | Were typos (`femal`, `female24yrs`, `normale`); parser fixed |
 
 After cleaning, a full re-scan of all 112,093 NIH images finds **zero** remaining duplicate pairs.
+
+Also checked and needing no fix:
+
+- **NIH "suspected inverted" images** (12 of 400 sampled) were reviewed by hand; all are correctly oriented. They were flagged because of bright, unexposed areas outside the collimated field, not inversion.
+- **TBX11K "uncertain TB" category** (`PulmonaryTuberculosis`) has **0** images in the train / val lists, so no uncertain labels need special handling.
 
 ### Risks the models must be tested against
 
@@ -396,6 +401,8 @@ After cleaning, a full re-scan of all 112,093 NIH images finds **zero** remainin
 | 🟠 **Hospital fingerprints** | Each dataset is 99–100% identifiable from global image statistics, with or without normalization | External test reported separately; domain shift documented |
 | 🟡 **Sicker official NIH test set** | Pneumothorax 3.0% in train vs 10.4% in test; AP views 35% → 57% | Explained by follow-up scans (below); thresholds chosen on validation only |
 | 🟡 **Rare findings** | Hernia: 126 train, **15 validation** positives | Reliability tiers decided on validation |
+| 🟠 **Padding mismatch (TB)** | After preprocessing, only **0.2%** of TBX11K images are padded, versus **97%** of Shenzhen and **100%** of Montgomery | Random black padding / shift augmentation during TB training |
+| 🟠 **Sharpness gap (TB)** | Median sharpness at 320 px: TBX11K **99**, Shenzhen **299**, Montgomery **515** | Random blur and sharpen augmentation during TB training |
 
 <p align="center">
   <img src="docs/figures/eda/03_nih_prevalence_by_split.png" width="48%" alt="NIH prevalence by split" />
@@ -416,7 +423,7 @@ After cleaning, a full re-scan of all 112,093 NIH images finds **zero** remainin
 - **Lesion size:** NIH nodule boxes have a median side of **15 px at 224 px input vs 22 px at 320 px**; the smallest is 6 px.
 - **Co-occurrence:** 43% of edema images also carry infiltration, 38% of pneumonia images too, and 36% of cardiomegaly images carry effusion.
 - **Demographics:** NIH ~56% male, median age 49; Shenzhen 68% male, median 33 (31 children); Montgomery 54% female, median 40 (17 children); TBX11K has no demographics.
-- **Image quality:** starting thresholds for the app's quality check are sharpness < 33.5 and mean brightness outside 83–171 (1st / 99th percentiles), used as **warnings**, not rejections.
+- **Image quality:** starting thresholds for the app's quality check are sharpness < 34.7 and mean brightness outside 83–175 (1st / 99th percentiles), used as **warnings**, not rejections.
 
 ### Preprocessing decisions
 
@@ -425,8 +432,11 @@ After cleaning, a full re-scan of all 112,093 NIH images finds **zero** remainin
 | Decode | PIL → 8-bit grayscale; palette images through their palette | Formats, inversion check |
 | Borders | Trim perfectly flat rows / columns | Border check (Montgomery) |
 | Shape | Pad to square, never stretch | Size and aspect check |
-| Size | Long side **320 px** | Lesion-size check |
+| Size | Long side **320 px**; images larger than 512 px are first reduced to 512 px so all sources pass through the same resampling | Lesion-size check, resolution gap (Montgomery ~4000 px) |
 | Intensity | Stored as-is; fixed ImageNet mean / std at load time; no CLAHE | Shortcut and fingerprint probes |
+| Records | Crop, padding and scale saved per image (NIH boxes are mapped onto the 320 px images); per-image brightness, contrast and sharpness saved for shortcut checks | Bounding-box use, evaluation within quality bands |
+
+**Preprocessing result:** all **121,141** images processed with **0 failures** (TBX11K 8,248 · NIH 112,093 · Shenzhen 662 · Montgomery 138). Flat borders were trimmed in 92 of 138 Montgomery images and 13,235 NIH images.
 
 ---
 
@@ -480,13 +490,13 @@ pneumyst-ai/
 │   ├── configs/              # versioned training + threshold configs
 │   ├── datasets/             # manifest builders, label mapping, dedupe
 │   ├── eda/                  # EDA charts, data checks, shortcut probes
-│   ├── preprocessing/        # validation, resizing, manifests, dedupe
+│   ├── preprocessing/        # trim, pad, resize, per-image stats
 │   ├── training/             # training loops with safe checkpointing
 │   ├── evaluation/           # metrics, calibration, external tests
 │   ├── inference/            # standalone inference utilities
-│   ├── tests/                # data pipeline and EDA tests
+│   ├── tests/                # data pipeline, EDA and preprocessing tests
 │   └── checkpoints/          # local only, git-ignored
-├── notebooks/                # eda.ipynb (X-ray outputs stripped before commit)
+├── notebooks/                # eda.ipynb (includes sample X-rays for visual validation)
 ├── docs/                     # EDA figures, architecture, model cards, limitations
 ├── .env.example
 ├── .gitignore
@@ -570,11 +580,13 @@ This validates every image, builds leak-free splits and writes manifests, duplic
 
 Open `notebooks/eda.ipynb` with the `.venv` kernel and run all cells. Charts are saved to `docs/figures/eda/`.
 
-### 7. Preprocess images *(planned)*
+### 7. Preprocess images
 
 ```powershell
 python -m ml.preprocessing.preprocess
 ```
+
+This trims flat borders, pads to square and resizes every image to 320 px, writing them to `DATA_ROOT/processed/images_320/` and per-image records to `DATA_ROOT/processed/manifests/<dataset>_processed.csv`. It resumes where it stopped if interrupted; use `--overwrite` after rebuilding the manifests.
 
 ### 8. Train *(planned)*
 
@@ -703,7 +715,8 @@ gantt
 | Dataset manifests and canonical labels | ✅ Tested |
 | Duplicate and leak detection (all datasets) | ✅ Tested |
 | Exploratory data analysis (23 sections) | ✅ Implemented |
-| Image preprocessing (320 px) | ⏳ Next |
+| Image preprocessing (320 px) | ✅ Tested (121,141 images, 0 failures) |
+| Training pipeline and augmentation | ⏳ Next |
 | TB classifier | ⬜ Not started |
 | NIH 14-finding classifier | ⬜ Not started |
 | Reliability tiers and per-finding thresholds | ⬜ Not started |
