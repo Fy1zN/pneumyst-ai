@@ -1,0 +1,71 @@
+{
+  "run": "tb_densenet121_v1",
+  "best_epoch": 11,
+  "auroc": 0.9998747338093449,
+  "auroc_ci": [
+    0.9995909537841338,
+    1.0
+  ],
+  "auroc_sick_vs_tb": 0.9998474446987032,
+  "threshold_90_sens": 0.987375,
+  "at_threshold": {
+    "n": 977,
+    "positives": 90,
+    "threshold": 0.9874,
+    "auroc": 0.9998747338093449,
+    "auprc": 0.998810248740024,
+    "sensitivity": 0.9111111111111111,
+    "specificity": 1.0,
+    "ppv": 1.0,
+    "npv": 0.9910614525139665,
+    "f1": 0.9534883720930233,
+    "tp": 82,
+    "fp": 0,
+    "tn": 887,
+    "fn": 8
+  },
+  "bands": [
+    {
+      "stat": "sharpness",
+      "band": "(34.833000000000006, 86.701]",
+      "n": 326,
+      "positives": 4,
+      "auroc": 1.0
+    },
+    {
+      "stat": "sharpness",
+      "band": "(86.701, 122.758]",
+      "n": 325,
+      "positives": 12,
+      "auroc": 0.9997337593184239
+    },
+    {
+      "stat": "sharpness",
+      "band": "(122.758, 542.221]",
+      "n": 326,
+      "positives": 74,
+      "auroc": 0.999946374946375
+    },
+    {
+      "stat": "brightness",
+      "band": "(66.54899999999999, 125.784]",
+      "n": 326,
+      "positives": 22,
+      "auroc": 0.9992523923444976
+    },
+    {
+      "stat": "brightness",
+      "band": "(125.784, 145.198]",
+      "n": 325,
+      "positives": 50,
+      "auroc": 1.0
+    },
+    {
+      "stat": "brightness",
+      "band": "(145.198, 198.898]",
+      "n": 326,
+      "positives": 18,
+      "auroc": 1.0
+    }
+  ]
+}

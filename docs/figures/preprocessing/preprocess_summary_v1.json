@@ -1,0 +1,139 @@
+{
+  "version": "v1",
+  "config": {
+    "size": 320,
+    "flat_std": 4.0,
+    "min_content": 0.5,
+    "pad_value": 0
+  },
+  "datasets": {
+    "tbx11k": {
+      "rows": 8248,
+      "ok": 8248,
+      "failed": [],
+      "trimmed": 546,
+      "padded": 231,
+      "stats_median": {
+        "px_mean": 135.35,
+        "px_std": 64.569,
+        "px_p1": 0.0,
+        "px_p99": 227.0,
+        "px_sharpness": 98.991,
+        "px_black_frac": 0.067,
+        "px_white_frac": 0.0
+      }
+    },
+    "shenzhen": {
+      "rows": 662,
+      "ok": 662,
+      "failed": [],
+      "trimmed": 662,
+      "padded": 652,
+      "stats_median": {
+        "px_mean": 148.117,
+        "px_std": 70.634,
+        "px_p1": 0.0,
+        "px_p99": 233.0,
+        "px_sharpness": 289.897,
+        "px_black_frac": 0.055,
+        "px_white_frac": 0.0
+      }
+    },
+    "montgomery": {
+      "rows": 138,
+      "ok": 138,
+      "failed": [],
+      "trimmed": 137,
+      "padded": 138,
+      "stats_median": {
+        "px_mean": 114.996,
+        "px_std": 82.806,
+        "px_p1": 0.0,
+        "px_p99": 251.0,
+        "px_sharpness": 536.912,
+        "px_black_frac": 0.186,
+        "px_white_frac": 0.029
+      }
+    },
+    "nih": {
+      "rows": 112093,
+      "ok": 112093,
+      "failed": [],
+      "trimmed": 38072,
+      "padded": 25317,
+      "stats_median": {
+        "px_mean": 122.341,
+        "px_std": 59.704,
+        "px_p1": 1.0,
+        "px_p99": 228.0,
+        "px_sharpness": 149.043,
+        "px_black_frac": 0.028,
+        "px_white_frac": 0.0
+      }
+    }
+  },
+  "qa": {
+    "tbx11k": {
+      "manifest_rows": 8248,
+      "processed_ok": 8248,
+      "not_ok": 0
+    },
+    "shenzhen": {
+      "manifest_rows": 662,
+      "processed_ok": 662,
+      "not_ok": 0
+    },
+    "montgomery": {
+      "manifest_rows": 138,
+      "processed_ok": 138,
+      "not_ok": 0
+    },
+    "nih": {
+      "manifest_rows": 112093,
+      "processed_ok": 112093,
+      "not_ok": 0
+    },
+    "format_sample": {
+      "((320, 320), 'L')": 500
+    },
+    "nih_boxes_320": 984
+  },
+  "minutes": {
+    "tbx11k": 0.0,
+    "shenzhen": 0.0,
+    "montgomery": 0.0,
+    "nih": 0.0
+  },
+  "probes_320": [
+    {
+      "comparison": "health vs sick",
+      "auroc_320px": 0.986,
+      "auroc_raw (EDA)": 0.985
+    },
+    {
+      "comparison": "health vs tb",
+      "auroc_320px": 0.972,
+      "auroc_raw (EDA)": 0.976
+    },
+    {
+      "comparison": "sick vs tb",
+      "auroc_320px": 0.931,
+      "auroc_raw (EDA)": 0.938
+    },
+    {
+      "comparison": "montgomery vs shenzhen",
+      "auroc_320px": 1.0,
+      "auroc_raw (EDA)": 1.0
+    },
+    {
+      "comparison": "montgomery vs tbx11k",
+      "auroc_320px": 1.0,
+      "auroc_raw (EDA)": 1.0
+    },
+    {
+      "comparison": "shenzhen vs tbx11k",
+      "auroc_320px": 0.991,
+      "auroc_raw (EDA)": 0.994
+    }
+  ]
+}
