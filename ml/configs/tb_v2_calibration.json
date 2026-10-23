@@ -1,0 +1,18 @@
+{
+  "model": "tb_densenet121_v2",
+  "checkpoint": "ml/checkpoints/tb_densenet121_v2/best.pt",
+  "best_epoch": 8,
+  "fitted_on": "Shenzhen-dev (331 images, ml/configs/tb_shenzhen_split.csv)",
+  "method": "platt",
+  "target_sensitivity_possible": 0.9,
+  "target_specificity_likely": 0.9,
+  "findings": {
+    "Tuberculosis": {
+      "platt_a": 1.076717,
+      "platt_b": -2.878319,
+      "possible_threshold": 0.32817,
+      "likely_threshold": 0.685407,
+      "status": "banded"
+    }
+  }
+}

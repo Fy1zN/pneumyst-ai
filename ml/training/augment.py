@@ -1,6 +1,6 @@
 """Training-time augmentation for 320 px grayscale X-rays (numpy + OpenCV, never flips).
 
-Order: photometric -> blur / sharpen -> noise -> rotate / zoom / shift -> random black bars,
+Order: photometric -> CLAHE -> low resolution -> blur / sharpen -> noise -> rotate / zoom / shift -> random black bars,
 so added bars stay pure black like the padding written by preprocessing.
 """
 from __future__ import annotations
@@ -29,6 +29,10 @@ class AugConfig:
     sharpen_amount: tuple[float, float] = (0.3, 1.5)
     noise_p: float = 0.2
     noise_std: float = 4.0
+    clahe_p: float = 0.0                        # local contrast like other hospitals' processing (off by default)
+    clahe_clip: tuple[float, float] = (1.0, 3.0)
+    lowres_p: float = 0.0                       # downscale then upscale, like older or lower-resolution scanners
+    lowres_scale: tuple[float, float] = (0.4, 0.8)
 
 
 def photometric(img: np.ndarray, rng: np.random.Generator, cfg: AugConfig) -> np.ndarray:
@@ -36,6 +40,17 @@ def photometric(img: np.ndarray, rng: np.random.Generator, cfg: AugConfig) -> np
     x = (x - 0.5) * rng.uniform(*cfg.contrast) + 0.5 + rng.uniform(-cfg.brightness, cfg.brightness)
     x = np.clip(x, 0.0, 1.0) ** rng.uniform(*cfg.gamma)
     return np.clip(x * 255.0 + 0.5, 0, 255).astype(np.uint8)
+
+
+def random_clahe(img: np.ndarray, rng: np.random.Generator, cfg: AugConfig) -> np.ndarray:
+    return cv2.createCLAHE(clipLimit=rng.uniform(*cfg.clahe_clip), tileGridSize=(8, 8)).apply(img)
+
+
+def random_lowres(img: np.ndarray, rng: np.random.Generator, cfg: AugConfig) -> np.ndarray:
+    h, w = img.shape
+    s = rng.uniform(*cfg.lowres_scale)
+    small = cv2.resize(img, (max(1, int(w * s)), max(1, int(h * s))), interpolation=cv2.INTER_AREA)
+    return cv2.resize(small, (w, h), interpolation=cv2.INTER_LINEAR)
 
 
 def blur_or_sharpen(img: np.ndarray, rng: np.random.Generator, cfg: AugConfig) -> np.ndarray:
@@ -81,6 +96,10 @@ def augment(img: np.ndarray, rng: np.random.Generator, cfg: AugConfig) -> np.nda
     """uint8 HxW in, uint8 HxW out (same size)."""
     if rng.random() < cfg.photometric_p:
         img = photometric(img, rng, cfg)
+    if rng.random() < cfg.clahe_p:
+        img = random_clahe(img, rng, cfg)
+    if rng.random() < cfg.lowres_p:
+        img = random_lowres(img, rng, cfg)
     img = blur_or_sharpen(img, rng, cfg)
     if rng.random() < cfg.noise_p:
         img = add_noise(img, rng, cfg)

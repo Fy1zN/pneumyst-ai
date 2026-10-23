@@ -1,0 +1,98 @@
+{
+  "best_epoch": 8,
+  "calibration": {
+    "platt_a": 1.076717,
+    "platt_b": -2.878319,
+    "possible_threshold": 0.32817,
+    "likely_threshold": 0.685407,
+    "status": "banded"
+  },
+  "comparison": [
+    {
+      "set": "shenzhen_test",
+      "model": "v1",
+      "n": 331,
+      "tb": 168,
+      "auroc": 0.8022202746129127,
+      "ci_low": 0.7560920185800565,
+      "ci_high": 0.844806881558655,
+      "ece": 0.3001673439790029,
+      "tb_caught": 0.9523809523809523,
+      "red_tb": 0.9523809523809523,
+      "false_red": 0.6687116564417178,
+      "false_red_count": 109
+    },
+    {
+      "set": "shenzhen_test",
+      "model": "v2",
+      "n": 331,
+      "tb": 168,
+      "auroc": 0.8914877300613497,
+      "ci_low": 0.8552608011293574,
+      "ci_high": 0.922764439480393,
+      "ece": 0.046907879288368794,
+      "tb_caught": 0.8928571428571429,
+      "red_tb": 0.6488095238095238,
+      "false_red": 0.06134969325153374,
+      "false_red_count": 10
+    },
+    {
+      "set": "montgomery",
+      "model": "v1",
+      "n": 138,
+      "tb": 58,
+      "auroc": 0.6655172413793102,
+      "ci_low": 0.5691911606951299,
+      "ci_high": 0.7591056397306397,
+      "ece": 0.28446583586655366,
+      "tb_caught": 0.5689655172413793,
+      "red_tb": 0.5689655172413793,
+      "false_red": 0.3375,
+      "false_red_count": 27
+    },
+    {
+      "set": "montgomery",
+      "model": "v2",
+      "n": 138,
+      "tb": 58,
+      "auroc": 0.7435344827586207,
+      "ci_low": 0.6503523612898613,
+      "ci_high": 0.8262290002934456,
+      "ece": 0.2514779080374285,
+      "tb_caught": 0.3793103448275862,
+      "red_tb": 0.15517241379310345,
+      "false_red": 0.0125,
+      "false_red_count": 1
+    },
+    {
+      "set": "tbx11k_test",
+      "model": "v1",
+      "n": 1792,
+      "tb": 200,
+      "auroc": 0.9976947236180904,
+      "ci_low": 0.9949290246310385,
+      "ci_high": 0.9995106621092633,
+      "ece": 0.008374160639053399,
+      "tb_caught": 0.92,
+      "red_tb": 0.92,
+      "false_red": 0.001256281407035176,
+      "false_red_count": 2
+    },
+    {
+      "set": "tbx11k_test",
+      "model": "v2",
+      "n": 1792,
+      "tb": 200,
+      "auroc": 0.9955590452261307,
+      "ci_low": 0.990551421035391,
+      "ci_high": 0.9988601387693515,
+      "ece": 0.029577262606425375,
+      "tb_caught": 0.925,
+      "red_tb": 0.84,
+      "false_red": 0.000628140703517588,
+      "false_red_count": 1
+    }
+  ],
+  "rule": "montgomery: higher AUROC and lower ECE and no more false reds",
+  "v2_replaces_v1": true
+}

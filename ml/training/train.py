@@ -24,6 +24,7 @@ from ml.training.metrics import multilabel_auroc, safe_auprc, safe_auroc
 from ml.training.model import build_model, set_backbone_trainable
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+SHENZHEN_SPLIT = REPO_ROOT / "ml" / "configs" / "tb_shenzhen_split.csv"
 TASKS = {
     "tb": {"source": "tbx11k", "labels": [label_column(TB)], "pad_p": 0.5},
     "nih": {"source": "nih", "labels": [label_column(f) for f in NIH_FINDINGS], "pad_p": 0.3},
@@ -51,6 +52,9 @@ class TrainConfig:
     seed: int = 42
     limit: int | None = None          # use only N train and N val images (smoke runs)
     pad_p: float | None = None        # None = task default (TB 0.5, NIH 0.3)
+    label_smoothing: float = 0.0      # targets become ls/2 and 1 - ls/2, so scores cannot run to exactly 0 / 1
+    aug: dict | None = None           # extra AugConfig settings, e.g. {"clahe_p": 0.3}
+    dev_set: str | None = None        # "shenzhen_dev": pick the best epoch on this external set instead of val
 
 
 # ---------- loss ----------
@@ -62,6 +66,11 @@ def compute_pos_weight(labels: np.ndarray, cap: float) -> torch.Tensor:
     return torch.tensor(np.clip(neg / np.maximum(pos, 1), 1.0, cap), dtype=torch.float32)
 
 
+def smooth_labels(y: torch.Tensor, ls: float) -> torch.Tensor:
+    """Move known 0 / 1 targets to ls/2 and 1 - ls/2; unknown (NaN) stays NaN."""
+    return y * (1 - ls) + 0.5 * ls if ls else y
+
+
 def masked_bce(logits: torch.Tensor, y: torch.Tensor, pos_weight: torch.Tensor) -> torch.Tensor:
     """BCE that ignores unknown (NaN) labels."""
     known = ~torch.isnan(y)
@@ -70,6 +79,35 @@ def masked_bce(logits: torch.Tensor, y: torch.Tensor, pos_weight: torch.Tensor) 
 
 
 # ---------- data ----------
+
+def make_shenzhen_split(root: Path, seed: int = 42, path: Path | None = None) -> pd.DataFrame:
+    """Frozen 50/50 Shenzhen dev / test split, stratified by TB label. Never overwrites an existing split."""
+    path = path or SHENZHEN_SPLIT
+    if path.exists():
+        return pd.read_csv(path)
+    sz = load_processed(root, "shenzhen")
+    parts = []
+    for _, grp in sz.groupby(label_column(TB)):
+        grp = grp.sample(frac=1.0, random_state=seed)
+        half = len(grp) // 2
+        parts += [grp.iloc[:half].assign(part="dev"), grp.iloc[half:].assign(part="test")]
+    split = pd.concat(parts)[["image_id", "part"]].sort_values("image_id").reset_index(drop=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    split.to_csv(path, index=False)
+    return split
+
+
+def load_dev(cfg: TrainConfig, root: Path) -> pd.DataFrame | None:
+    if cfg.dev_set is None:
+        return None
+    if cfg.dev_set != "shenzhen_dev" or cfg.task != "tb":
+        raise ValueError(f"dev_set {cfg.dev_set!r} is only supported as 'shenzhen_dev' for the TB task")
+    if not SHENZHEN_SPLIT.exists():
+        raise FileNotFoundError(f"{SHENZHEN_SPLIT} missing: run make_shenzhen_split(root) first")
+    ids = pd.read_csv(SHENZHEN_SPLIT).query("part == 'dev'")["image_id"]
+    sz = load_processed(root, "shenzhen")
+    return sz[sz["image_id"].isin(set(ids))].reset_index(drop=True)
+
 
 def make_splits(cfg: TrainConfig, root: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     df = load_processed(root, TASKS[cfg.task]["source"])
@@ -85,7 +123,8 @@ def make_loaders(cfg: TrainConfig, root: Path, train: pd.DataFrame, val: pd.Data
     pad_p = TASKS[cfg.task]["pad_p"] if cfg.pad_p is None else cfg.pad_p
     common = {"num_workers": cfg.workers, "pin_memory": torch.cuda.is_available(),
               "persistent_workers": cfg.workers > 0}
-    train_dl = DataLoader(XrayDataset(train, root, labels, AugConfig(pad_p=pad_p)), batch_size=cfg.batch_size,
+    aug = AugConfig(pad_p=pad_p, **(cfg.aug or {}))
+    train_dl = DataLoader(XrayDataset(train, root, labels, aug), batch_size=cfg.batch_size,
                           shuffle=True, drop_last=len(train) > cfg.batch_size, **common)
     val_dl = DataLoader(XrayDataset(val, root, labels), batch_size=cfg.batch_size * 2, shuffle=False, **common)
     return train_dl, val_dl
@@ -105,7 +144,7 @@ def train_one_epoch(model, loader, opt, sched, scaler, pos_weight, device, cfg: 
         y = y.to(device, non_blocking=True)
         with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=use_amp):
             logits = model(x)
-        loss = masked_bce(logits.float(), y, pos_weight)
+        loss = masked_bce(logits.float(), smooth_labels(y, cfg.label_smoothing), pos_weight)
         scaler.scale(loss / cfg.accum_steps).backward()
         if (step + 1) % cfg.accum_steps == 0 or step + 1 == len(loader):
             scaler.unscale_(opt)
@@ -180,8 +219,11 @@ def fit(cfg: TrainConfig, root: Path, run_dir: Path | None = None, device: str |
     train, val = make_splits(cfg, root)
     train_dl, val_dl = make_loaders(cfg, root, train, val)
     labels = TASKS[cfg.task]["labels"]
+    dev_df = load_dev(cfg, root)
+    dev_dl = None if dev_df is None else DataLoader(XrayDataset(dev_df, root, labels), batch_size=cfg.batch_size * 2)
     pos_weight = compute_pos_weight(train[labels].to_numpy(dtype=float), cfg.pos_weight_cap).to(dev)
-    log(f"{cfg.task}: train {len(train):,} | val {len(val):,} | device {dev} | "
+    n_dev = 0 if dev_df is None else len(dev_df)
+    log(f"{cfg.task}: train {len(train):,} | val {len(val):,} | dev {n_dev:,} | device {dev} | "
         f"pos_weight {np.round(pos_weight.cpu().numpy(), 1).tolist()}")
 
     model = build_model(len(labels), cfg.pretrained, cfg.memory_efficient).to(dev)
@@ -211,6 +253,12 @@ def fit(cfg: TrainConfig, root: Path, run_dir: Path | None = None, device: str |
         val_loss = float(masked_bce(torch.logit(torch.tensor(probs).clamp(1e-6, 1 - 1e-6)),
                                     torch.tensor(val[labels].to_numpy(dtype=np.float32)), pos_weight.cpu()))
         metrics = score(cfg.task, val, probs)
+        if dev_dl is not None:  # select on the external dev set; val metrics are still logged
+            dev_probs = predict(model, dev_dl, dev, cfg.amp)
+            y_dev = dev_df[labels].to_numpy(dtype=float)
+            metrics.update({"dev_auroc": safe_auroc(y_dev[:, 0], dev_probs[:, 0]),
+                            "dev_auprc": safe_auprc(y_dev[:, 0], dev_probs[:, 0])})
+            metrics["metric"] = metrics["dev_auroc"]
         row = {"epoch": epoch + 1, "frozen": frozen, "train_loss": round(train_loss, 4), "val_loss": round(val_loss, 4),
                "lr_backbone": opt.param_groups[0]["lr"], "minutes": round((time.time() - t0) / 60, 2), **metrics}
         state["history"].append(row)
@@ -220,12 +268,15 @@ def fit(cfg: TrainConfig, root: Path, run_dir: Path | None = None, device: str |
             torch.save({"model": model.state_dict(), "config": asdict(cfg), "epoch": epoch + 1, "metrics": metrics,
                         "labels": labels}, run_dir / "best.pt")
             save_predictions(run_dir / "val_predictions.csv", cfg.task, val, probs)
+            if dev_dl is not None:
+                save_predictions(run_dir / "dev_predictions.csv", cfg.task, dev_df, dev_probs)
             mark = " *best*"
         else:
             state["bad_epochs"] += 0 if frozen else 1
             mark = ""
+        extra = "" if dev_dl is None else f" (val auroc {metrics['auroc']:.4f})"
         log(f"epoch {epoch + 1}/{cfg.epochs}{' (frozen)' if frozen else ''} | train {train_loss:.4f} | "
-            f"val {val_loss:.4f} | metric {metrics['metric']:.4f} | {row['minutes']} min{mark}")
+            f"val {val_loss:.4f} | metric {metrics['metric']:.4f}{extra} | {row['minutes']} min{mark}")
 
         state["epoch"] = epoch + 1
         if state["bad_epochs"] >= cfg.patience:

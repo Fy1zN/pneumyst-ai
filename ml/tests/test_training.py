@@ -14,7 +14,8 @@ from PIL import Image
 from ml.training.augment import AugConfig, affine, augment, random_pad
 from ml.training.data import XrayDataset, to_tensor
 from ml.training.metrics import banded_auroc, binary_report, threshold_for_sensitivity
-from ml.training.train import TrainConfig, benchmark_speed, compute_pos_weight, fit, masked_bce
+from ml.training.train import (TrainConfig, benchmark_speed, compute_pos_weight, fit, make_shenzhen_split, masked_bce,
+                               smooth_labels)
 
 
 def _blob_left(size: int = 320) -> np.ndarray:
@@ -169,3 +170,61 @@ def test_fit_nih_multilabel(tmp_path: Path):
     assert "mean_auroc" in row and f"auroc_{NIH_FINDINGS[0]}" in row
     preds = pd.read_csv(tmp_path / "run" / "val_predictions.csv")
     assert len(preds) == 16 and preds.filter(like="prob_").shape[1] == 14
+
+    
+
+def test_new_augmentations_keep_shape_and_never_flip():
+    img = _blob_left()
+    cfg = AugConfig(clahe_p=1.0, lowres_p=1.0, pad_p=1.0, affine_p=1.0)
+    for seed in range(30):
+        out = augment(img, np.random.default_rng(seed), cfg)
+        assert out.shape == img.shape and out.dtype == np.uint8
+        ys, xs = np.nonzero(out > out.max() * 0.85)
+        assert xs.mean() < img.shape[1] / 2
+
+
+def test_smooth_labels_keeps_unknown():
+    y = torch.tensor([[1.0, 0.0, float("nan")]])
+    out = smooth_labels(y, 0.1)
+    assert torch.allclose(out[0, :2], torch.tensor([0.95, 0.05])) and torch.isnan(out[0, 2])
+    assert smooth_labels(y, 0.0) is y
+
+
+def _write_shenzhen(root: Path, n: int = 20) -> None:
+    rng = np.random.default_rng(1)
+    rows = []
+    for i in range(n):
+        tb = int(i % 2 == 0)
+        rel = f"processed/images_320/shenzhen/CHNCXR_{i:04d}_{tb}.png"
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(np.clip(rng.normal(150 if tb else 90, 20, (64, 64)), 0, 255).astype(np.uint8)).save(root / rel)
+        rows.append({"image_id": f"shenzhen:CHNCXR_{i:04d}_{tb}.png", "split": "external_test", "processed_path": rel,
+                     "proc_status": "ok", "label_tuberculosis": tb})
+    pd.DataFrame(rows).to_csv(root / "processed" / "manifests" / "shenzhen_processed.csv", index=False)
+
+
+def test_shenzhen_split_is_stratified_frozen_and_disjoint(tiny_root: Path, tmp_path: Path):
+    _write_shenzhen(tiny_root)
+    path = tmp_path / "split.csv"
+    split = make_shenzhen_split(tiny_root, path=path)
+    assert len(split) == 20 and set(split["part"]) == {"dev", "test"}
+    labels = split["image_id"].str.endswith("_1.png")
+    assert (split.loc[labels, "part"] == "dev").sum() == 5 and (split.loc[~labels, "part"] == "dev").sum() == 5
+    path.write_text(path.read_text().replace("test", "dev", 1))  # an existing split is never regenerated
+    assert make_shenzhen_split(tiny_root, seed=7, path=path).equals(pd.read_csv(path))
+
+
+def test_fit_selects_on_shenzhen_dev(tiny_root: Path, tmp_path: Path, monkeypatch):
+    import ml.training.train as tr
+
+    _write_shenzhen(tiny_root)
+    monkeypatch.setattr(tr, "SHENZHEN_SPLIT", tmp_path / "split.csv")
+    tr.make_shenzhen_split(tiny_root, path=tmp_path / "split.csv")
+    cfg = TrainConfig(task="tb", epochs=2, frozen_epochs=1, batch_size=8, accum_steps=1, workers=0, pretrained=False,
+                      memory_efficient=False, amp=False, label_smoothing=0.1, aug={"clahe_p": 0.5, "lowres_p": 0.5},
+                      dev_set="shenzhen_dev")
+    out = tr.fit(cfg, tiny_root, run_dir=tmp_path / "run", device="cpu", log=lambda *_: None)
+    hist = out["history"]
+    assert (hist["metric"] == hist["dev_auroc"]).all() and "auroc" in hist
+    dev_preds = pd.read_csv(tmp_path / "run" / "dev_predictions.csv")
+    assert len(dev_preds) == 10 and "prob_tuberculosis" in dev_preds
