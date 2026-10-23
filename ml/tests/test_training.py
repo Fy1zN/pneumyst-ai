@@ -14,7 +14,7 @@ from PIL import Image
 from ml.training.augment import AugConfig, affine, augment, random_pad
 from ml.training.data import XrayDataset, to_tensor
 from ml.training.metrics import banded_auroc, binary_report, threshold_for_sensitivity
-from ml.training.train import TrainConfig, compute_pos_weight, fit, masked_bce
+from ml.training.train import TrainConfig, benchmark_speed, compute_pos_weight, fit, masked_bce
 
 
 def _blob_left(size: int = 320) -> np.ndarray:
@@ -136,3 +136,36 @@ def test_fit_runs_saves_and_resumes(tiny_root: Path, tmp_path: Path):
     preds = pd.read_csv(run / "val_predictions.csv")
     assert {"image_id", "label_tuberculosis", "prob_tuberculosis"} <= set(preds.columns) and len(preds) == 12
     assert "auroc_sick_vs_tb" in hist[0]
+    
+
+def test_benchmark_speed_reports_each_config():
+    res = benchmark_speed(
+        [{"batch_size": 2, "memory_efficient": True}, {"batch_size": 2, "memory_efficient": False}],
+        steps=1, size=64, device="cpu")
+    assert list(res["status"]) == ["ok", "ok"] and (res["images_per_s"] > 0).all()
+
+
+def test_fit_nih_multilabel(tmp_path: Path):
+    from ml.datasets.targets import NIH_FINDINGS, label_column
+
+    rng = np.random.default_rng(0)
+    rows = []
+    for i in range(40):
+        rel = f"processed/images_320/nih/img{i:03d}.png"
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(rng.integers(0, 255, (64, 64), dtype=np.uint8)).save(tmp_path / rel)
+        labels = {label_column(f): int(rng.random() < 0.3) for f in NIH_FINDINGS}
+        rows.append({"image_id": f"nih:img{i:03d}.png", "split": "train" if i < 24 else "val",
+                     "processed_path": rel, "proc_status": "ok", **labels})
+    df = pd.DataFrame(rows)
+    df.loc[df["split"] == "val", label_column(NIH_FINDINGS[0])] = [0, 1] * 8  # both classes present
+    (tmp_path / "processed" / "manifests").mkdir(parents=True)
+    df.to_csv(tmp_path / "processed" / "manifests" / "nih_processed.csv", index=False)
+
+    cfg = TrainConfig(task="nih", epochs=1, frozen_epochs=0, batch_size=8, accum_steps=1, workers=0,
+                      pretrained=False, memory_efficient=False, amp=False)
+    out = fit(cfg, tmp_path, run_dir=tmp_path / "run", device="cpu", log=lambda *_: None)
+    row = out["history"].iloc[0]
+    assert "mean_auroc" in row and f"auroc_{NIH_FINDINGS[0]}" in row
+    preds = pd.read_csv(tmp_path / "run" / "val_predictions.csv")
+    assert len(preds) == 16 and preds.filter(like="prob_").shape[1] == 14

@@ -101,7 +101,7 @@ def train_one_epoch(model, loader, opt, sched, scaler, pos_weight, device, cfg: 
     total, seen = 0.0, 0
     opt.zero_grad(set_to_none=True)
     for step, (x, y) in enumerate(loader):
-        x = x.to(device, non_blocking=True, memory_format=torch.channels_last)
+        x = x.to(device, non_blocking=True)
         y = y.to(device, non_blocking=True)
         with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=use_amp):
             logits = model(x)
@@ -124,7 +124,7 @@ def predict(model, loader, device, amp: bool = True) -> np.ndarray:
     model.eval()
     out = []
     for x, _ in loader:
-        x = x.to(device, non_blocking=True, memory_format=torch.channels_last)
+        x = x.to(device, non_blocking=True)
         with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp and device.type == "cuda"):
             out.append(torch.sigmoid(model(x).float()).cpu().numpy())
     return np.concatenate(out)
@@ -172,6 +172,7 @@ def fit(cfg: TrainConfig, root: Path, run_dir: Path | None = None, device: str |
     """Train with resume: rerunning with the same run_dir continues from last.pt."""
     torch.manual_seed(cfg.seed)
     np.random.seed(cfg.seed)
+    torch.backends.cudnn.benchmark = True
     dev = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
     run_dir = Path(run_dir or REPO_ROOT / "ml" / "checkpoints" / cfg.run_name)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -183,7 +184,7 @@ def fit(cfg: TrainConfig, root: Path, run_dir: Path | None = None, device: str |
     log(f"{cfg.task}: train {len(train):,} | val {len(val):,} | device {dev} | "
         f"pos_weight {np.round(pos_weight.cpu().numpy(), 1).tolist()}")
 
-    model = build_model(len(labels), cfg.pretrained, cfg.memory_efficient).to(dev, memory_format=torch.channels_last)
+    model = build_model(len(labels), cfg.pretrained, cfg.memory_efficient).to(dev)
     steps_per_epoch = math.ceil(len(train_dl) / cfg.accum_steps)
     opt, sched = make_optimizer(model, cfg, steps_per_epoch)
     scaler = torch.amp.GradScaler("cuda", enabled=cfg.amp and dev.type == "cuda")
@@ -243,12 +244,12 @@ def find_batch_size(cfg: TrainConfig, candidates=(32, 24, 16, 12, 8), size: int 
     if not torch.cuda.is_available():
         return None
     dev = torch.device("cuda")
-    model = build_model(len(TASKS[cfg.task]["labels"]), False, cfg.memory_efficient).to(dev, memory_format=torch.channels_last)
+    model = build_model(len(TASKS[cfg.task]["labels"]), False, cfg.memory_efficient).to(dev)
     opt = torch.optim.AdamW(model.parameters())
     best, x, loss = None, None, None
     for bs in candidates:
         try:
-            x = torch.randn(bs, 3, size, size, device=dev).to(memory_format=torch.channels_last)
+            x = torch.randn(bs, 3, size, size, device=dev)
             with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=cfg.amp):
                 loss = model(x).float().mean()
             loss.backward()
@@ -268,6 +269,52 @@ def find_batch_size(cfg: TrainConfig, candidates=(32, 24, 16, 12, 8), size: int 
     del model, opt
     torch.cuda.empty_cache()
     return best
+
+
+def benchmark_speed(configs: list[dict], steps: int = 15, size: int = 320, device: str | None = None) -> pd.DataFrame:
+    """Images per second of a full training step (forward + backward + optimizer) for each
+    {"batch_size": ..., "memory_efficient": ...}. Random input, so data loading is not included."""
+    dev = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
+    torch.backends.cudnn.benchmark = True
+    rows = []
+    for c in configs:
+        bs, mem_eff = c["batch_size"], c["memory_efficient"]
+        row = {"batch_size": bs, "memory_efficient": mem_eff, "images_per_s": float("nan"), "peak_gb": float("nan"),
+               "status": "ok"}
+        model = build_model(14, False, mem_eff).to(dev)
+        opt = torch.optim.AdamW(model.parameters())
+        scaler = torch.amp.GradScaler("cuda", enabled=dev.type == "cuda")
+        x = torch.randn(bs, 3, size, size, device=dev)
+        y = torch.randint(0, 2, (bs, 14), device=dev).float()
+        logits = None
+        try:
+            if dev.type == "cuda":
+                torch.cuda.reset_peak_memory_stats()
+            for i in range(steps + 3):  # 3 warm-up steps are not timed
+                if i == 3:
+                    if dev.type == "cuda":
+                        torch.cuda.synchronize()
+                    t0 = time.time()
+                with torch.autocast(device_type=dev.type, dtype=torch.float16, enabled=dev.type == "cuda"):
+                    logits = model(x)
+                scaler.scale(F.binary_cross_entropy_with_logits(logits.float(), y)).backward()
+                scaler.step(opt)
+                scaler.update()
+                opt.zero_grad(set_to_none=True)
+            if dev.type == "cuda":
+                torch.cuda.synchronize()
+                row["peak_gb"] = round(torch.cuda.max_memory_allocated() / 1e9, 2)
+            row["images_per_s"] = round(steps * bs / (time.time() - t0), 1)
+        except torch.cuda.OutOfMemoryError:
+            row["status"] = "out of memory"
+        finally:
+            del model, opt, x, y, logits
+            if dev.type == "cuda":
+                torch.cuda.empty_cache()
+        print(f"batch {bs:>2} | memory_efficient {mem_eff!s:>5} | {row['images_per_s']} img/s | "
+              f"peak {row['peak_gb']} GB | {row['status']}")
+        rows.append(row)
+    return pd.DataFrame(rows)
 
 
 def main() -> None:
