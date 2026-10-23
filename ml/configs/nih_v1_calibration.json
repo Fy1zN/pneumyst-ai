@@ -1,0 +1,113 @@
+{
+  "model": "nih_densenet121_v1",
+  "checkpoint": "ml/checkpoints/nih_densenet121_v1/best.pt",
+  "fitted_on": "NIH validation split (9,170 images)",
+  "method": "platt",
+  "findings": {
+    "Atelectasis": {
+      "platt_a": 0.780536,
+      "platt_b": -2.023795,
+      "possible_threshold": 0.055352,
+      "likely_threshold": 0.22156,
+      "status": "banded"
+    },
+    "Cardiomegaly": {
+      "platt_a": 0.567215,
+      "platt_b": -3.211239,
+      "possible_threshold": 0.013391,
+      "likely_threshold": 0.041022,
+      "status": "banded"
+    },
+    "Consolidation": {
+      "platt_a": 0.71634,
+      "platt_b": -2.927809,
+      "possible_threshold": 0.01892,
+      "likely_threshold": 0.083413,
+      "status": "banded"
+    },
+    "Edema": {
+      "platt_a": 0.544091,
+      "platt_b": -3.294199,
+      "possible_threshold": 0.009449,
+      "likely_threshold": 0.040008,
+      "status": "banded"
+    },
+    "Effusion": {
+      "platt_a": 0.887326,
+      "platt_b": -1.991993,
+      "possible_threshold": 0.069567,
+      "likely_threshold": 0.206455,
+      "status": "banded"
+    },
+    "Emphysema": {
+      "platt_a": 0.565282,
+      "platt_b": -3.685884,
+      "possible_threshold": 0.006964,
+      "likely_threshold": 0.024004,
+      "status": "banded"
+    },
+    "Fibrosis": {
+      "platt_a": 0.53509,
+      "platt_b": -3.854762,
+      "possible_threshold": 0.005097,
+      "likely_threshold": 0.028456,
+      "status": "banded"
+    },
+    "Hernia": {
+      "platt_a": 0.388397,
+      "platt_b": -4.255362,
+      "possible_threshold": 0.000364,
+      "likely_threshold": 0.002564,
+      "status": "insufficient_data"
+    },
+    "Infiltration": {
+      "platt_a": 0.984209,
+      "platt_b": -1.695189,
+      "possible_threshold": 0.088241,
+      "likely_threshold": 0.263908,
+      "status": "banded"
+    },
+    "Mass": {
+      "platt_a": 0.777188,
+      "platt_b": -2.932285,
+      "possible_threshold": 0.018764,
+      "likely_threshold": 0.083154,
+      "status": "banded"
+    },
+    "Nodule": {
+      "platt_a": 0.749282,
+      "platt_b": -2.707142,
+      "possible_threshold": 0.024647,
+      "likely_threshold": 0.103962,
+      "status": "banded"
+    },
+    "Pleural_Thickening": {
+      "platt_a": 0.614133,
+      "platt_b": -3.378485,
+      "possible_threshold": 0.009792,
+      "likely_threshold": 0.054413,
+      "status": "banded"
+    },
+    "Pneumonia": {
+      "platt_a": 0.567294,
+      "platt_b": -3.605128,
+      "possible_threshold": 0.00474,
+      "likely_threshold": 0.024738,
+      "status": "banded"
+    },
+    "Pneumothorax": {
+      "platt_a": 0.594621,
+      "platt_b": -2.982754,
+      "possible_threshold": 0.014228,
+      "likely_threshold": 0.072241,
+      "status": "banded"
+    }
+  },
+  "target_sensitivity_possible": 0.9,
+  "target_specificity_likely": 0.9,
+  "bands": {
+    "unlikely": "score < possible_threshold",
+    "possible": "possible_threshold <= score < likely_threshold",
+    "likely": "score >= likely_threshold"
+  }
+}
