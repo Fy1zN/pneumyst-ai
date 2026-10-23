@@ -26,6 +26,7 @@
 [Reports](#-screening-report-and-audit-trail) •
 [Datasets](#-datasets) •
 [Data findings](#-data-findings-eda) •
+[Model results](#-model-results) •
 [Getting started](#-getting-started) •
 [Evaluation](#-evaluation-protocol) •
 [Roadmap](#-roadmap) •
@@ -52,43 +53,46 @@ It is built around three engineering principles:
 
 ### Screening targets: 15 chest findings
 
-| Group | Finding | Model | Training data | Status |
+| Group | Finding | Model | Training data | Test AUROC |
 |---|---|---|---|:-:|
-| **Infection** | Tuberculosis | DenseNet-121 (binary, separate model) | TBX11K | 🟡 Planned |
-| | Pneumonia | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
-| | Consolidation | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
-| | Infiltration | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
-| **Pleura** | Effusion | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
-| | Pneumothorax | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
-| | Pleural thickening | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
-| **Lung tissue** | Atelectasis | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
-| | Edema | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
-| | Emphysema | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
-| | Fibrosis | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
-| | Nodule | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
-| | Mass | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
-| **Heart and other** | Cardiomegaly | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
-| | Hernia | DenseNet-121 (14-label) | NIH ChestX-ray14 | 🟡 Planned |
+| **Infection** | Tuberculosis | DenseNet-121 (binary, separate model) | TBX11K | 0.891 Shenzhen · 0.744 Montgomery (v2) |
+| | Pneumonia | DenseNet-121 (14-label) | NIH ChestX-ray14 | 0.722 |
+| | Consolidation | DenseNet-121 (14-label) | NIH ChestX-ray14 | 0.743 |
+| | Infiltration | DenseNet-121 (14-label) | NIH ChestX-ray14 | 0.696 |
+| **Pleura** | Effusion | DenseNet-121 (14-label) | NIH ChestX-ray14 | 0.826 |
+| | Pneumothorax | DenseNet-121 (14-label) | NIH ChestX-ray14 | 0.863 |
+| | Pleural thickening | DenseNet-121 (14-label) | NIH ChestX-ray14 | 0.781 |
+| **Lung tissue** | Atelectasis | DenseNet-121 (14-label) | NIH ChestX-ray14 | 0.772 |
+| | Edema | DenseNet-121 (14-label) | NIH ChestX-ray14 | 0.850 |
+| | Emphysema | DenseNet-121 (14-label) | NIH ChestX-ray14 | 0.926 |
+| | Fibrosis | DenseNet-121 (14-label) | NIH ChestX-ray14 | 0.825 |
+| | Nodule | DenseNet-121 (14-label) | NIH ChestX-ray14 | 0.762 |
+| | Mass | DenseNet-121 (14-label) | NIH ChestX-ray14 | 0.825 |
+| **Heart and other** | Cardiomegaly | DenseNet-121 (14-label) | NIH ChestX-ray14 | 0.894 |
+| | Hernia | DenseNet-121 (14-label) | NIH ChestX-ray14 | 0.901 · too few validation cases |
 
-Two models produce all 15 scores: a TB specialist trained on TBX11K, and one multi-label model that outputs all 14 NIH findings in a single pass. Because they are trained on different data, the TB score is not directly comparable with the NIH scores.
+Two models produce all 15 scores: a TB specialist trained on TBX11K, and one multi-label model that outputs all 14 NIH findings in a single pass. Because they are trained on different data, the TB score is not directly comparable with the NIH scores. NIH figures are on the official NIH test set (25,588 images); TB figures are on external hospitals the model never trained on. Full results: [Model results](#-model-results).
 
 > These are radiographic findings, not diagnoses. A nodule or mass score does **not** indicate lung cancer, and a tuberculosis score does not confirm TB.
 
-### Reliability tiers
+### Calibrated scores and result bands
 
-Findings differ widely in how much and how reliable their training data is. Each finding is assigned a tier using **validation data only, before the test set is ever evaluated**, so weak findings are labelled honestly instead of hidden or cherry-picked.
+Raw model scores are not probabilities: class weighting inflated the NIH scores 3–20× and TB v1 output almost only 0 or 1. Every score is therefore **calibrated** (Platt scaling), and each finding gets **two thresholds**, all fitted on validation data only and frozen in version-controlled config ([`ml/configs/`](ml/configs/)) before any test set is evaluated.
 
-| Tier | Rule (validation set) | How the app shows it |
+| Band | Rule | Meaning |
 |---|---|---|
-| ✅ **Validated** | AUROC ≥ 0.80 and enough positive cases | Score, threshold and heatmap |
-| 🧪 **Experimental** | AUROC 0.70–0.80 | Score and heatmap with an "experimental, lower reliability" badge |
-| ⛔ **Not supported** | AUROC < 0.70 or too few positive cases | Listed as "insufficient data"; no score shown |
+| 🟢 **Unlikely** | score below the *possible* threshold | ruled out at the screening operating point |
+| 🟡 **Possible: review** | between the two thresholds | the model cannot tell; clinician review |
+| 🔴 **Likely** | score at or above the *likely* threshold | flagged |
 
-Tier assignments are stored in version-controlled config and listed in the model card.
+- *Possible* threshold: catches at least **90% of positives** on validation (yellow + red).
+- *Likely* threshold: at most **10% of negatives** turn red on validation, so red stays rare and meaningful.
+- The calibrated score is always shown next to the band, so a red flag for a rare finding (e.g. "6%") is read in proportion.
+- **Hernia** is marked `insufficient_data` (15 validation positives) and shows no band. Weaker findings (Infiltration, Pneumonia, Nodule) carry a lower-reliability note.
 
 ### Key features
 
-- 🩻 **15 chest findings** across infection, pleura, lung tissue and heart, with honest reliability tiers.
+- 🩻 **15 chest findings** across infection, pleura, lung tissue and heart, with calibrated scores and honest unlikely / possible / likely bands.
 - 🧠 **Trained computer-vision models** do all image analysis; the LLM never invents predictions.
 - 🔍 **Occlusion Sensitivity** heatmaps with validation, caching and adaptive GPU batching.
 - 🤖 **One orchestrator agent** that sequences six typed, allow-listed tools.
@@ -400,7 +404,7 @@ Also checked and needing no fix:
 | 🟠 **AP-view shortcut** | Edema is **11× more common on AP than PA** images (3.9% vs 0.3%); consolidation 2.8× | AUROC reported separately for AP and PA images |
 | 🟠 **Hospital fingerprints** | Each dataset is 99–100% identifiable from global image statistics, with or without normalization | External test reported separately; domain shift documented |
 | 🟡 **Sicker official NIH test set** | Pneumothorax 3.0% in train vs 10.4% in test; AP views 35% → 57% | Explained by follow-up scans (below); thresholds chosen on validation only |
-| 🟡 **Rare findings** | Hernia: 126 train, **15 validation** positives | Reliability tiers decided on validation |
+| 🟡 **Rare findings** | Hernia: 126 train, **15 validation** positives | Hernia marked insufficient data; bands decided on validation |
 | 🟠 **Padding mismatch (TB)** | After preprocessing, only **0.2%** of TBX11K images are padded, versus **97%** of Shenzhen and **100%** of Montgomery | Random black padding / shift augmentation during TB training |
 | 🟠 **Sharpness gap (TB)** | Median sharpness at 320 px: TBX11K **99**, Shenzhen **299**, Montgomery **515** | Random blur and sharpen augmentation during TB training |
 
@@ -437,6 +441,74 @@ Also checked and needing no fix:
 | Records | Crop, padding and scale saved per image (NIH boxes are mapped onto the 320 px images); per-image brightness, contrast and sharpness saved for shortcut checks | Bounding-box use, evaluation within quality bands |
 
 **Preprocessing result:** all **121,141** images processed with **0 failures** (TBX11K 8,248 · NIH 112,093 · Shenzhen 662 · Montgomery 138). Flat borders were trimmed in 92 of 138 Montgomery images and 13,235 NIH images.
+
+---
+
+## 📈 Model results
+
+Both models are DenseNet-121 (ImageNet weights) at 320 px, trained on an RTX 3050 (4 GB) with mixed precision. Model choice, calibration and thresholds use validation data only; each test set was run **once** afterwards.
+
+### NIH 14-finding model (v1)
+
+Best epoch 7 of 10 (validation mean AUROC 0.829, early stop after overfitting began). **Official NIH test set: mean AUROC 0.813** across 14 findings.
+
+| Finding | Test positives | Val AUROC | **Test AUROC** (95% CI) | AP | PA | Caught (yellow + red) | Positives in red | Negatives in red | Red PPV |
+|---|--:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| Emphysema | 1,093 | 0.895 | **0.926** (0.918–0.933) | 0.934 | 0.913 | 97% | 88% | 16% | 20% |
+| Hernia ⚠️ | 86 | 0.847 | **0.901** (0.855–0.941) | 0.778 | 0.918 | 98% | 83% | 12% | 2% |
+| Cardiomegaly | 1,069 | 0.912 | **0.894** (0.885–0.903) | 0.856 | 0.935 | 90% | 75% | 13% | 20% |
+| Pneumothorax | 2,664 | 0.842 | **0.863** (0.857–0.870) | 0.848 | 0.863 | 98% | 76% | 19% | 32% |
+| Edema | 924 | 0.883 | **0.850** (0.838–0.860) | 0.779 | 0.847 | 96% | 79% | 24% | 11% |
+| Effusion | 4,656 | 0.898 | **0.826** (0.819–0.831) | 0.796 | 0.860 | 94% | 72% | 23% | 41% |
+| Mass | 1,748 | 0.849 | **0.825** (0.815–0.836) | 0.801 | 0.843 | 95% | 69% | 18% | 22% |
+| Fibrosis | 435 | 0.797 | **0.825** (0.805–0.842) | 0.821 | 0.785 | 94% | 53% | 11% | 8% |
+| Pleural thickening | 1,143 | 0.775 | **0.781** (0.769–0.793) | 0.780 | 0.759 | 97% | 59% | 20% | 12% |
+| Atelectasis | 3,278 | 0.820 | **0.772** (0.765–0.780) | 0.761 | 0.788 | 94% | 44% | 12% | 34% |
+| Nodule | 1,621 | 0.782 | **0.762** (0.750–0.774) | 0.751 | 0.773 | 96% | 49% | 14% | 19% |
+| Consolidation | 1,815 | 0.813 | **0.743** (0.733–0.754) | 0.692 | 0.728 | 95% | 58% | 24% | 16% |
+| Pneumonia | 555 | 0.770 | **0.722** (0.699–0.742) | 0.700 | 0.712 | 95% | 48% | 19% | 5% |
+| Infiltration | 6,110 | 0.718 | **0.696** (0.689–0.703) | 0.678 | 0.599 | 96% | 56% | 27% | 40% |
+
+⚠️ Hernia: only 15 validation positives, so it is marked `insufficient_data` and shows no band in v1, even though its test result is good.
+
+- **Strong:** Emphysema, Cardiomegaly, Pneumothorax, Edema (≥ 0.85). **Weakest:** Infiltration (0.696, 0.599 on PA images) and Pneumonia (0.722), consistent with their noisy NLP-mined labels.
+- **Test vs validation:** the official test set is sicker (57% AP vs 36%, about 9 scans per patient). Effusion, Consolidation and Atelectasis drop 0.05–0.07; Emphysema, Pneumothorax and Fibrosis rise.
+- **Calibration holds on test:** calibrated averages match observed rates (e.g. Effusion 0.181 vs 0.182) with calibration error ≤ 0.038.
+
+<p align="center">
+  <img src="docs/figures/training/nih_v1_val_per_finding.png" width="80%" alt="NIH validation AUROC per finding" />
+</p>
+
+### TB model: v1 → v2
+
+TB v1 reached AUROC 0.998 on TBX11K but was overconfident (scores almost only 0 or 1) and weaker at other hospitals. Its own validation set was saturated at 1.000, so it could not guide improvements. TB v2 changed four things:
+
+1. **Model selection on Shenzhen-dev**: Shenzhen was split once, 50/50 by TB label ([`ml/configs/tb_shenzhen_split.csv`](ml/configs/tb_shenzhen_split.csv)); the dev half picks the epoch, the test half is reported. Montgomery stays untouched.
+2. **Label smoothing (0.1)** so scores cannot run to exactly 0 or 1.
+3. **Wider augmentation**: stronger contrast / gamma, random CLAHE and random low resolution, on top of padding, blur / sharpen and photometric changes.
+4. **Calibration and bands fitted on Shenzhen-dev** ([`ml/configs/tb_v2_calibration.json`](ml/configs/tb_v2_calibration.json)).
+
+| Test set | Model | AUROC (95% CI) | Calibration error | TB caught | Healthy flagged red |
+|---|---|:-:|:-:|:-:|:-:|
+| Shenzhen-test (331) | v1 (threshold 0.5) | 0.802 (0.756–0.845) | 0.300 | 95% | **67%** (109) |
+| Shenzhen-test (331) | **v2** | **0.891** (0.855–0.923) | **0.047** | 89% | **6%** (10) |
+| Montgomery (138) | v1 (threshold 0.5) | 0.666 (0.569–0.759) | 0.284 | 57% | 34% (27) |
+| Montgomery (138) | **v2** | **0.744** (0.650–0.826) | 0.251 | **38%** | 1% (1) |
+| TBX11K test (1,792) | v1 / v2 | 0.998 / 0.996 | 0.008 / 0.030 | 92% / 93% | 0.1% / 0.1% |
+
+**Decision rule, set before testing:** v2 replaces v1 if, on Montgomery, AUROC is higher, calibration error lower and false reds no higher. All three held, so **v2 is the TB model**.
+
+- v2 is clearly better on Shenzhen-test (the confidence intervals barely overlap) and its scores are no longer all-or-nothing.
+- On Montgomery v2 ranks better (not statistically proven with 138 images) and raises almost no false alarms, but **catches only 38% of TB**: Shenzhen-tuned thresholds do not transfer to a very different hospital. See [Limitations](#-limitations).
+
+<p align="center">
+  <img src="docs/figures/training/tb_v1_vs_v2_scores.png" width="80%" alt="TB v1 vs v2 score distributions on Shenzhen-test and Montgomery" />
+</p>
+
+### Training notes
+
+- **Speed:** the `channels_last` memory format made DenseNet-121's backward pass about 10× slower on this GPU (8 vs 82 images/s). Removing it brought NIH epochs from about 2.7 hours to about 19 minutes.
+- **Checkpoints:** `best.pt` (selected epoch) and `last.pt` (resume) per run in `ml/checkpoints/`, git-ignored.
 
 ---
 
@@ -588,12 +660,16 @@ python -m ml.preprocessing.preprocess
 
 This trims flat borders, pads to square and resizes every image to 320 px, writing them to `DATA_ROOT/processed/images_320/` and per-image records to `DATA_ROOT/processed/manifests/<dataset>_processed.csv`. It resumes where it stopped if interrupted; use `--overwrite` after rebuilding the manifests.
 
-### 8. Train *(planned)*
+### 8. Train and evaluate
+
+Open `notebooks/train.ipynb` (`.venv` kernel) and run its sections in order: setup, NIH model, TB v2. Each training cell resumes from `ml/checkpoints/<run>/last.pt` if interrupted. A command-line entry point is also available:
 
 ```powershell
-python -m ml.training.train --config ml/configs/tb_densenet121.yaml
-python -m ml.training.train --config ml/configs/nih_multilabel_densenet121.yaml
+python -m ml.training.train --task nih --epochs 10 --batch-size 16 --accum 2
+python -m ml.training.train --task tb --epochs 12 --batch-size 16 --accum 2
 ```
+
+The notebook adds what the CLI does not: the TB v2 Shenzhen-dev selection, calibration and bands, and the one-time test evaluations. Checkpoints are git-ignored; keep a backup of each `best.pt`.
 
 ### 9. Run the backend *(planned)*
 
@@ -649,10 +725,16 @@ Thresholds are chosen on validation data only and stored in version-controlled c
 
 ### Results
 
-> **No results yet.** This table is filled only with metrics from completed, reproducible runs.
+All numbers below come from completed, reproducible runs (`notebooks/train.ipynb`; summaries in [`docs/figures/training/`](docs/figures/training/)). Each test set was evaluated **once**, after model choice, calibration and thresholds were frozen. See [Model results](#-model-results) for the full write-up.
 
-| Model | Test set | AUROC | AUPRC | Sensitivity | Specificity |
+| Model | Test set | AUROC (95% CI) | Calibration error | Positives caught (yellow + red) | Negatives flagged red |
 |---|---|:-:|:-:|:-:|:-:|
+| TB · DenseNet-121 **v2** | TBX11K local test (1,792) | 0.996 (0.991–0.999) | 0.030 | 92.5% | 0.1% |
+| TB · DenseNet-121 **v2** | Shenzhen-test (331) | **0.891** (0.855–0.923) | 0.047 | 89.3% | 6.1% |
+| TB · DenseNet-121 **v2** | Montgomery (138, never touched) | **0.744** (0.650–0.826) | 0.251 | 37.9% | 1.3% |
+| Multi-label · DenseNet-121 | NIH official test (25,588) | **0.813** mean of 14 | 0.002–0.038 | 90–98% per finding | 11–27% per finding |
+
+---|---|:-:|:-:|:-:|:-:|
 | TB · DenseNet-121 | TBX11K (local test) | — | — | — | — |
 | TB · DenseNet-121 | Shenzhen + Montgomery | — | — | — | — |
 | Multi-label · DenseNet-121 | NIH official test (mean of 14) | — | — | — | — |
@@ -716,11 +798,11 @@ gantt
 | Duplicate and leak detection (all datasets) | ✅ Tested |
 | Exploratory data analysis (23 sections) | ✅ Implemented |
 | Image preprocessing (320 px) | ✅ Tested (121,141 images, 0 failures) |
-| Training pipeline and augmentation | ⏳ Next |
-| TB classifier | ⬜ Not started |
-| NIH 14-finding classifier | ⬜ Not started |
-| Reliability tiers and per-finding thresholds | ⬜ Not started |
-| Occlusion Sensitivity engine | ⬜ Not started |
+| Training pipeline and augmentation | ✅ Tested (34 unit tests) |
+| TB classifier | ✅ Tested (v2: Shenzhen-test 0.891, Montgomery 0.744) |
+| NIH 14-finding classifier | ✅ Tested (official test mean AUROC 0.813) |
+| Calibration and per-finding bands | ✅ Tested (frozen on validation) |
+| Occlusion Sensitivity engine | ⏳ Next |
 | Explanation cache and fallbacks | ⬜ Not started |
 | Orchestrator agent and tools | ⬜ Not started |
 | FastAPI endpoints | ⬜ Not started |
@@ -735,6 +817,8 @@ gantt
 
 Statuses move through **Not started → In progress → Implemented → Tested → Verified in running app**. A feature is never marked complete just because code exists.
 
+**Future model work:** TB v3 (chest-X-ray-pretrained weights after checking their training data, or multi-hospital training with balanced sampling) to close the Montgomery gap; Hernia validation; higher resolution for nodules; external radiologist-labelled tests (VinDr-CXR, CheXpert).
+
 ---
 
 ## ⚠️ Limitations
@@ -746,7 +830,11 @@ Statuses move through **Not started → In progress → Implemented → Tested �
 - No prospective or clinical validation has been performed.
 - TBX11K classes differ strongly in acquisition statistics (brightness, contrast, sharpness), so internal TB scores may overstate real performance; the external Shenzhen / Montgomery test is the primary TB measure.
 - TBX11K has no patient IDs, so two different scans of one patient could fall into different splits; only identical or near-identical images can be detected.
-- Some findings have few or ambiguous training cases (for example Hernia, Pneumonia and Infiltration); these are expected to fall into the experimental or not-supported tiers.
+- Some findings have few or ambiguous training cases. Hernia has only 15 validation positives and is shown as insufficient data (its test AUROC of 0.901 on 86 cases suggests it could be enabled after proper validation); Infiltration (0.696) and Pneumonia (0.722) are the weakest findings.
+- **TB at unfamiliar hospitals:** TB v2 thresholds were set on Shenzhen. On Montgomery, whose images look very different, the model ranks TB moderately (AUROC 0.744) but its calibrated scores run low, so only 38% of TB cases reach yellow or red. A site with different scanners needs local calibration before the TB result is relied on.
+- **AP-view shortcut:** part of the NIH performance comes from the AP/PA view (e.g. Edema 0.850 overall but 0.779 on AP images). Results are reported per view; heatmaps will be used to check what the model looks at.
+- **Sicker test population:** on NIH's official test set more images turn red for findings the patient does not have (11–27% vs 10% on validation), because many test patients have other findings.
+- The TB v2 split and calibration files were written before the test cell ran and were not changed afterwards, but they were committed together with the test results rather than in a separate commit beforehand.
 - The NIH findings are evaluated on NIH's own NLP-derived test labels; external radiologist-labelled validation (VinDr-CXR, CheXpert) is future work.
 - The account system is designed for a research prototype and has not been audited for clinical data protection standards.
 
