@@ -224,7 +224,7 @@ Partial success is a feature: if one model or the explanation fails, every other
 
 ## 🔍 Explainability: Occlusion Sensitivity
 
-Occlusion Sensitivity estimates how much each image region matters to a score by hiding patches of the image and measuring how the score changes.
+Occlusion Sensitivity estimates how much each image region matters to a score by hiding patches of the image and measuring how the **calibrated** score changes. One pass explains all 14 NIH findings at once; the TB model gets its own pass.
 
 ```mermaid
 flowchart LR
@@ -236,19 +236,62 @@ flowchart LR
     B --> F
     F --> G["Map back to<br/>image grid"]
     G --> H{"Validate<br/>shape · NaN · degenerate"}
-    H -- valid --> I["Overlay + legend"]
+    H -- valid --> K{"Display rules<br/>band · evidence"}
     H -- invalid --> J["No heatmap<br/>status + error code"]
+    K -- shown --> I["Smoothed overlay<br/>+ region outline"]
+    K -- hidden --> L["No map<br/>reason recorded"]
 ```
 
 | Aspect | Design |
 |---|---|
-| Grid | Configurable patch size and stride (starting point: 16 × 16 over the model input) |
-| Speed | Bounded batches, `torch.inference_mode()`, GPU when available, coarse grid on CPU |
-| OOM handling | Halve batch size → bounded retries → coarse-grid fallback (recorded) → optional CPU |
-| Deadlines | Separate explanation deadline, cancellation checks between batches |
-| Concurrency | Limited explanation jobs so simultaneous uploads cannot exhaust VRAM |
-| Cache key | Image hash + model version + target + preprocessing + baseline + patch/stride + algorithm version |
-| Validation | Rejects wrong shapes, NaN/Inf, constant maps and stale artifacts |
+| Grid | 32 × 32 px patches, stride 16, over the 320 px input (361 occluded copies per image) |
+| Baseline | Heavily blurred copy of the image (σ = 12). Black squares were avoided because they look like the padding the models were trained on |
+| Score | Drop in **calibrated** score, so maps are comparable across findings |
+| Speed | Occluded copies built on the GPU in batches of 32, `torch.inference_mode()`, mixed precision: **≈ 1.45 s per image** on the RTX 3050, **0.44 GB** peak memory |
+| OOM handling | Halve the batch size, up to 3 retries, then return status `out_of_memory` with the scores but no map |
+| Validation | Rejects wrong shapes, NaN/Inf and constant maps |
+| Code | [`ml/explain/occlusion.py`](ml/explain/occlusion.py), checks in [`notebooks/explain.ipynb`](notebooks/explain.ipynb), 10 unit tests |
+| *Planned (backend)* | Explanation deadline and cancellation, limited concurrent jobs, cache keyed on image hash + model version + settings |
+
+### Do the heatmaps show what the model uses?
+
+Checked on the NIH v1 model with the 984 radiologist-drawn boxes in the official NIH test set ([summary](docs/figures/explain/occlusion_summary.json)):
+
+| Finding | Boxes | Hottest spot inside the box | Chance (box area share) | Lift |
+|---|--:|:-:|:-:|:-:|
+| Cardiomegaly | 146 | **86%** | 18% | 4.8× |
+| Infiltration | 123 | 51% | 10% | 5.2× |
+| Pneumonia | 120 | 49% | 10% | 5.1× |
+| Effusion | 153 | 41% | 7% | 5.8× |
+| Mass | 85 | 38% | 4% | 8.7× |
+| Nodule | 79 | 27% | 0.6% | 47× |
+| Atelectasis | 180 | 23% | 3% | 6.9× |
+| Pneumothorax | 98 | 18% | 5% | 3.4× |
+| **All** | **984** | **43%** | **8%** | **5.6×** |
+
+<p align="center">
+  <img src="docs/figures/explain/nih_v1_box_pointing.png" width="75%" alt="Share of NIH test boxes containing the hottest heatmap pixel, per finding, against chance" />
+</p>
+
+- **Faithful:** hiding the hottest 10% of the image lowers the score by **0.189** on average, against **0.049** for a random 10% of similar shape; the heatmap wins in **99%** of 120 test images.
+- **Moderately stable:** changing the patch size (24 or 48 px) or the fill (mean instead of blur) keeps the overall pattern (median Spearman 0.74–0.77), but the single hottest spot lands in the same region only about half the time. Maps are therefore shown as **regions**, never as an exact point.
+- **No AP-view border shortcut found for Edema:** the share of heat in the outer image frame is lower on AP images (0.15) than PA (0.19), and both are far below the 0.42 expected if heat were spread evenly.
+- **TB v2 on Montgomery:** on TB cases it catches, the heat sits on the upper lobes, where TB usually appears. On missed cases the model often looks at the right area but its score stays too low, so the Montgomery gap is a threshold and sensitivity problem rather than the model looking in the wrong place.
+- **Weakest localization:** Pneumothorax and Atelectasis. The Pneumothorax heat tends to spread over the whole lung rather than the collapse line.
+
+### What the app shows
+
+Maps at low scores are mostly noise, and stretching each map to its own maximum painted that noise bright red (for example along the image border on TB cases the model scored near 0). The display rules below were set on these checks and then frozen:
+
+| Rule | Setting |
+|---|---|
+| Only findings in the **possible** or **likely** band get a map | Unlikely findings and Hernia (`insufficient_data`) show no map |
+| Hide the map when nothing strongly supports the score | No region removes at least 5% of the score |
+| Smooth the 16 px patch grid | Gaussian, σ = 8 px |
+| Colour scale | The map's own peak, but never less than 25% of the score, so weak evidence stays faint |
+| Region outline | Area at least half as hot as the peak |
+
+With these rules, 96% of the 984 boxed findings still get a map (they are real positives), the outlined region touches the radiologist's box in **82%** of them, and the median region covers 5% of the image.
 
 > A heatmap shows what influenced the **model**, not where disease **is**. Masking can introduce artificial patterns, and results depend on patch size, stride and baseline.
 
@@ -565,10 +608,11 @@ pneumyst-ai/
 │   ├── preprocessing/        # trim, pad, resize, per-image stats
 │   ├── training/             # training loops with safe checkpointing
 │   ├── evaluation/           # metrics, calibration, external tests
+│   ├── explain/              # Occlusion Sensitivity heatmaps, checks and display rules
 │   ├── inference/            # standalone inference utilities
-│   ├── tests/                # data pipeline, EDA and preprocessing tests
+│   ├── tests/                # data, EDA, preprocessing, training and heatmap tests
 │   └── checkpoints/          # local only, git-ignored
-├── notebooks/                # eda.ipynb (includes sample X-rays for visual validation)
+├── notebooks/                # eda, preprocessing, train, explain (sample X-rays kept for visual validation)
 ├── docs/                     # EDA figures, architecture, model cards, limitations
 ├── .env.example
 ├── .gitignore
@@ -671,7 +715,11 @@ python -m ml.training.train --task tb --epochs 12 --batch-size 16 --accum 2
 
 The notebook adds what the CLI does not: the TB v2 Shenzhen-dev selection, calibration and bands, and the one-time test evaluations. Checkpoints are git-ignored; keep a backup of each `best.pt`.
 
-### 9. Run the backend *(planned)*
+### 9. Check the heatmaps
+
+Open `notebooks/explain.ipynb` (`.venv` kernel). Cells 1–3 load both models and show a gallery; the box-overlap cell makes maps for all 880 boxed NIH test images (about 20–30 minutes the first time) and caches them in `DATA_ROOT/processed/explain/cache/`, so later cells and reruns are fast. Aggregate results go to `docs/figures/explain/`; X-ray figures stay in the data folder.
+
+### 10. Run the backend *(planned)*
 
 ```powershell
 uvicorn backend.app.main:app --reload
@@ -679,7 +727,7 @@ uvicorn backend.app.main:app --reload
 
 API docs: `http://localhost:8000/docs`
 
-### 10. Run the frontend *(planned)*
+### 11. Run the frontend *(planned)*
 
 ```powershell
 cd frontend
@@ -718,7 +766,7 @@ Internal file paths and storage keys are never exposed to the frontend.
 | External generalisation | Same metrics on Shenzhen + Montgomery (TB); VinDr-CXR / CheXpert as future work for NIH findings |
 | Subgroups | Metrics by sex, age band and AP/PA view (NIH), and by dataset of origin |
 | Shortcut checks | TB AUROC within sharpness / brightness bands; external vs internal TB gap; NIH AP vs PA gap |
-| Explainability | Repeatability · sensitivity to baseline and grid · score drop when top regions are occluded · overlap with TBX11K boxes · latency · peak memory · failure rate |
+| Explainability | Sensitivity to baseline and grid · score drop when top regions are occluded · overlap with NIH test boxes · latency · peak memory · failure rate |
 | Localization *(optional)* | mAP@0.5 · mAP@0.5:0.95 · Dice · IoU |
 
 Thresholds are chosen on validation data only and stored in version-controlled config. Test sets are never used for model selection.
@@ -734,29 +782,7 @@ All numbers below come from completed, reproducible runs (`notebooks/train.ipynb
 | TB · DenseNet-121 **v2** | Montgomery (138, never touched) | **0.744** (0.650–0.826) | 0.251 | 37.9% | 1.3% |
 | Multi-label · DenseNet-121 | NIH official test (25,588) | **0.813** mean of 14 | 0.002–0.038 | 90–98% per finding | 11–27% per finding |
 
----|---|:-:|:-:|:-:|:-:|
-| TB · DenseNet-121 | TBX11K (local test) | — | — | — | — |
-| TB · DenseNet-121 | Shenzhen + Montgomery | — | — | — | — |
-| Multi-label · DenseNet-121 | NIH official test (mean of 14) | — | — | — | — |
-
-**Per finding (NIH official test)**
-
-| Finding | AUROC | AUPRC | Sensitivity | Specificity | Tier |
-|---|:-:|:-:|:-:|:-:|:-:|
-| Pneumonia | — | — | — | — | — |
-| Consolidation | — | — | — | — | — |
-| Infiltration | — | — | — | — | — |
-| Effusion | — | — | — | — | — |
-| Pneumothorax | — | — | — | — | — |
-| Pleural thickening | — | — | — | — | — |
-| Atelectasis | — | — | — | — | — |
-| Edema | — | — | — | — | — |
-| Emphysema | — | — | — | — | — |
-| Fibrosis | — | — | — | — | — |
-| Nodule | — | — | — | — | — |
-| Mass | — | — | — | — | — |
-| Cardiomegaly | — | — | — | — | — |
-| Hernia | — | — | — | — | — |
+Heatmap checks (box overlap, deletion, stability) are in [Explainability](#-explainability-occlusion-sensitivity).
 
 ---
 
@@ -802,7 +828,9 @@ gantt
 | TB classifier | ✅ Tested (v2: Shenzhen-test 0.891, Montgomery 0.744) |
 | NIH 14-finding classifier | ✅ Tested (official test mean AUROC 0.813) |
 | Calibration and per-finding bands | ✅ Tested (frozen on validation) |
-| Occlusion Sensitivity engine | ⏳ Next |
+| Occlusion Sensitivity engine | ✅ Tested (43% of NIH boxes hit vs 8% chance; 10 unit tests) |
+| Heatmap display rules | ✅ Tested (frozen) |
+| Inference utility (both models → scores, bands, heatmaps) | ⏳ Next |
 | Explanation cache and fallbacks | ⬜ Not started |
 | Orchestrator agent and tools | ⬜ Not started |
 | FastAPI endpoints | ⬜ Not started |
@@ -826,13 +854,13 @@ Statuses move through **Not started → In progress → Implemented → Tested �
 - Trained on public research data; performance on other hospitals, devices and populations is unknown until externally validated.
 - NIH ChestX-ray14 labels were extracted from reports by NLP and contain errors, especially for pneumonia.
 - Models may learn shortcuts (for example, chest drains for pneumothorax); heatmaps are used to check for this but cannot rule it out.
-- Occlusion Sensitivity is a model-attribution aid, not a causal explanation and not clinical evidence.
+- Occlusion Sensitivity is a model-attribution aid, not a causal explanation and not clinical evidence. The hottest spot moves with patch size about half the time, so maps are shown as regions; localization is weakest for Pneumothorax (18% of boxes) and Atelectasis (23%).
 - No prospective or clinical validation has been performed.
 - TBX11K classes differ strongly in acquisition statistics (brightness, contrast, sharpness), so internal TB scores may overstate real performance; the external Shenzhen / Montgomery test is the primary TB measure.
 - TBX11K has no patient IDs, so two different scans of one patient could fall into different splits; only identical or near-identical images can be detected.
 - Some findings have few or ambiguous training cases. Hernia has only 15 validation positives and is shown as insufficient data (its test AUROC of 0.901 on 86 cases suggests it could be enabled after proper validation); Infiltration (0.696) and Pneumonia (0.722) are the weakest findings.
 - **TB at unfamiliar hospitals:** TB v2 thresholds were set on Shenzhen. On Montgomery, whose images look very different, the model ranks TB moderately (AUROC 0.744) but its calibrated scores run low, so only 38% of TB cases reach yellow or red. A site with different scanners needs local calibration before the TB result is relied on.
-- **AP-view shortcut:** part of the NIH performance comes from the AP/PA view (e.g. Edema 0.850 overall but 0.779 on AP images). Results are reported per view; heatmaps will be used to check what the model looks at.
+- **AP-view shortcut:** part of the NIH performance comes from the AP/PA view (e.g. Edema 0.850 overall but 0.779 on AP images). Results are reported per view; the heatmap border check found no sign that Edema relies on AP image borders or text.
 - **Sicker test population:** on NIH's official test set more images turn red for findings the patient does not have (11–27% vs 10% on validation), because many test patients have other findings.
 - The TB v2 split and calibration files were written before the test cell ran and were not changed afterwards, but they were committed together with the test results rather than in a separate commit beforehand.
 - The NIH findings are evaluated on NIH's own NLP-derived test labels; external radiologist-labelled validation (VinDr-CXR, CheXpert) is future work.
