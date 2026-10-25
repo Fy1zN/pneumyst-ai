@@ -1,0 +1,128 @@
+{
+  "config": {
+    "patch": 32,
+    "stride": 16,
+    "baseline": "blur",
+    "blur_sigma": 12.0
+  },
+  "box_overlap": [
+    {
+      "finding": "Atelectasis",
+      "boxes": 180.0,
+      "pointing_hit": 0.22777777777777777,
+      "chance": 0.03307166883680556,
+      "energy_in_box": 0.08166463793422736,
+      "lift_vs_chance": 6.887398966824534
+    },
+    {
+      "finding": "Cardiomegaly",
+      "boxes": 146.0,
+      "pointing_hit": 0.8561643835616438,
+      "chance": 0.17920436911386986,
+      "energy_in_box": 0.40329313487426877,
+      "lift_vs_chance": 4.777586549899465
+    },
+    {
+      "finding": "Effusion",
+      "boxes": 153.0,
+      "pointing_hit": 0.4117647058823529,
+      "chance": 0.07050864225898693,
+      "energy_in_box": 0.19720182918659654,
+      "lift_vs_chance": 5.83991823824788
+    },
+    {
+      "finding": "Infiltration",
+      "boxes": 123.0,
+      "pointing_hit": 0.5121951219512195,
+      "chance": 0.09913879890752032,
+      "energy_in_box": 0.20087995325268163,
+      "lift_vs_chance": 5.166444697691069
+    },
+    {
+      "finding": "Mass",
+      "boxes": 85.0,
+      "pointing_hit": 0.3764705882352941,
+      "chance": 0.043420151654411765,
+      "energy_in_box": 0.12375179154812084,
+      "lift_vs_chance": 8.67041163816484
+    },
+    {
+      "finding": "Nodule",
+      "boxes": 79.0,
+      "pointing_hit": 0.26582278481012656,
+      "chance": 0.005679514438291139,
+      "energy_in_box": 0.036584033051474736,
+      "lift_vs_chance": 46.80378713679399
+    },
+    {
+      "finding": "Pneumonia",
+      "boxes": 120.0,
+      "pointing_hit": 0.49166666666666664,
+      "chance": 0.0962861328125,
+      "energy_in_box": 0.1740160332604622,
+      "lift_vs_chance": 5.106308170295918
+    },
+    {
+      "finding": "Pneumothorax",
+      "boxes": 98.0,
+      "pointing_hit": 0.1836734693877551,
+      "chance": 0.053472277582908165,
+      "energy_in_box": 0.10156475025144815,
+      "lift_vs_chance": 3.4349288582849584
+    },
+    {
+      "finding": "All findings",
+      "boxes": 984.0,
+      "pointing_hit": 0.42886178861788615,
+      "chance": 0.07726894967924287,
+      "energy_in_box": 0.17551306610161324,
+      "lift_vs_chance": 5.550247420188414
+    }
+  ],
+  "deletion": {
+    "fraction": 0.1,
+    "images": 120,
+    "mean_drop_top": 0.189277876506348,
+    "mean_drop_random": 0.04863699413627855,
+    "heatmap_beats_random": 0.9916666666666667
+  },
+  "stability": [
+    {
+      "variant": "mean fill",
+      "spearman_median": 0.7382115177682482,
+      "same_hotspot_region": 0.55
+    },
+    {
+      "variant": "patch 24",
+      "spearman_median": 0.7719735695878971,
+      "same_hotspot_region": 0.45
+    },
+    {
+      "variant": "patch 48",
+      "spearman_median": 0.7564016737161383,
+      "same_hotspot_region": 0.5
+    }
+  ],
+  "edema_border_share": [
+    {
+      "finding": "Edema",
+      "view": "AP",
+      "border_share": 0.14941923320293427
+    },
+    {
+      "finding": "Edema",
+      "view": "PA",
+      "border_share": 0.1944241225719452
+    },
+    {
+      "finding": "Effusion",
+      "view": "AP",
+      "border_share": 0.19625483453273773
+    },
+    {
+      "finding": "Effusion",
+      "view": "PA",
+      "border_share": 0.19871662557125092
+    }
+  ]
+}
