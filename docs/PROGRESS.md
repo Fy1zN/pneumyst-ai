@@ -2,7 +2,7 @@
 
 Working notes for continuing the project in a new session. The [README](../README.md) is the public description and holds the full results; this file records **where things are, how we work, and why decisions were made**.
 
-_Last updated: 25 Oct 2026 · `main` at the Occlusion Sensitivity commit._
+_Last updated: 25 Oct 2026 · `main` at the inference utility commit. **The v1 ML work is complete.**_
 
 ---
 
@@ -18,8 +18,9 @@ _Last updated: 25 Oct 2026 · `main` at the Occlusion Sensitivity commit._
 | TB model v2 (replaces v1) | ✅ trained, calibrated, tested | `notebooks/train.ipynb`, `ml/configs/tb_v2_calibration.json` |
 | README results section | ✅ merged | `README.md` → "Model results" |
 | Occlusion Sensitivity heatmaps + display rules | ✅ done, checked, frozen | `ml/explain/`, `notebooks/explain.ipynb`, `docs/figures/explain/` |
-| **Inference utility** (both models → 15 scores, bands, heatmaps) | ⏳ **next** | — |
-| Backend (FastAPI, Clerk, MySQL, R2), reports, frontend | ⬜ not started | — |
+| Inference utility (both models → 15 scores, bands, heatmaps) | ✅ done, parity-checked | `ml/inference/screener.py`, `notebooks/inference.ipynb` |
+| **Backend** (FastAPI, Clerk, MySQL, R2) | ⏳ **next** | — |
+| Orchestrator + PDF report + audit JSON, Next.js dashboard, deploy | ⬜ not started | — |
 
 ## 2. Environment
 
@@ -29,7 +30,7 @@ _Last updated: 25 Oct 2026 · `main` at the Occlusion Sensitivity commit._
 - **Checkpoints (git-ignored, back them up!):** `ml/checkpoints/<run>/best.pt` (selected epoch) and `last.pt` (resume).
   - `tb_densenet121_v1` (superseded), `tb_densenet121_v2` (**current TB**), `nih_densenet121_v1` (**current NIH**)
   - Each run folder also has `history.json`, `val_predictions.csv`, `test_predictions.csv` (and `dev_predictions.csv` for TB v2).
-- **Tests:** `python -m pytest ml/tests -q` → 44 passed.
+- **Tests:** `python -m pytest ml/tests -q` → 56 passed.
 - **Heatmap cache:** `DATA_ROOT/processed/explain/cache/` (one `.npz` per image and setting). The first box-overlap run took about an hour; reruns read the cache.
 
 ## 3. Current models
@@ -87,10 +88,16 @@ Key weaknesses (all in README → Limitations): TB catches only 38% of Montgomer
 
 Notebook tip: after a restart, only the setup, gallery (`boxes = pd.read_csv(...)`), Montgomery (`mg = load_processed(...)`) and display-rules cells are needed to redo the preview. **Skip the box-overlap cell (`rows = []`)** unless the cache is gone.
 
-## 7. Next: inference utility
+## 7. Inference utility: results
 
-One entry point the backend will call:
-1. Load both checkpoints and their calibration configs once.
-2. One image → 15 calibrated scores and bands (Hernia `insufficient_data`).
-3. Heatmaps through `display_map`, so only possible/likely findings get a map, with the reason recorded for the others.
-4. Clear statuses for failures (missing checkpoint, bad image, out of memory), matching the README failure-handling codes.
+`ml/inference/screener.py`: `Screener.load()` once, `screen(path | bytes | array, explain=True)` per image, `result.to_dict()` for JSON, `result.overlay(finding)` for an RGB heatmap image.
+
+- **Parity** (`notebooks/inference.ipynb`, 250 raw test images): preprocessing identical 100%, max score difference 0.0007, same band 99.95%, NIH matches the saved `test_predictions.csv`.
+- **Speed (RTX 3050):** 111 ms per image without heatmaps, about 2 s with them (occlusion runs only for models with a possible/likely finding).
+- **Statuses:** `INVALID_IMAGE` (+ reason), `MODEL_UNAVAILABLE`, `INFERENCE_FAILED`, `EXPLANATION_OOM`, `EXPLANATION_DEGENERATE`, `INVALID_HEATMAP`, `EXPLANATION_FAILED`; overall `success` / `partial` / `failed`.
+- **Windows note:** never put large byte strings in `pytest.mark.parametrize` without `ids=`; the test ID goes into an environment variable with a 32,767-character limit.
+- **For the UI later:** rare findings become "possible" at very low scores (Cardiomegaly from 0.013), so lead with the band word rather than the percentage. Example seen: a missed Montgomery TB case where the Cardiomegaly and Pneumonia maps lit up the right upper lung.
+
+## 8. Next: backend
+
+Plan first (explain, then code), as usual. Planned in the README: FastAPI + Clerk JWT + MySQL (SQLAlchemy + Alembic) + Cloudflare R2, with the screener loaded once at startup. The backend machine needs `ml/checkpoints/tb_densenet121_v2/best.pt` and `ml/checkpoints/nih_densenet121_v1/best.pt`.

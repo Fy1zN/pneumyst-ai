@@ -297,6 +297,37 @@ With these rules, 96% of the 984 boxed findings still get a map (they are real p
 
 ---
 
+## 🧪 Inference utility
+
+[`ml/inference/screener.py`](ml/inference/screener.py) is the single entry point the backend calls:
+
+```python
+screener = Screener.load()           # once: both checkpoints + their frozen calibration configs
+result = screener.screen("cxr.png")  # per image; bad input or a failing model never raises
+result.to_dict()                     # JSON for the API, report and audit record
+```
+
+| Step | What happens |
+|---|---|
+| Input check | Decodes PNG/JPEG (16-bit scaled like the training data); rejects unreadable, tiny, huge, very elongated or blank images with `INVALID_IMAGE` and a reason |
+| Preprocessing | The same `preprocess_array()` as training (trim, pad, 320 px); its version and transform are recorded |
+| Scores and bands | One pass per model → 15 calibrated scores → unlikely / possible / likely from the frozen thresholds (Hernia: score, no band) |
+| Heatmaps | Occlusion only when a model has a possible or likely finding, then the [display rules](#what-the-app-shows); every finding gets a map or a reason |
+| Statuses | Per stage and per model, so one failure never hides or fakes another result (see [Failure handling](#-failure-handling)) |
+
+**Parity check** ([`notebooks/inference.ipynb`](notebooks/inference.ipynb)): 250 test images (150 NIH, 50 Montgomery, 50 Shenzhen) were run from their **raw files** through `screen()` and compared with the evaluation pipeline.
+
+| Check | Result |
+|---|---|
+| Preprocessing identical to the stored training images | 100% |
+| Largest score difference (fp16 rounding, single image vs batch) | 0.0007 |
+| Same band | 99.95% (2 of 3,750 results, both on a threshold) |
+| Time per image, RTX 3050 | 111 ms without heatmaps · about 2 s with heatmaps |
+
+The scores reported in [Model results](#-model-results) are therefore the scores the app produces. The utility does not check that an image is a chest X-ray; any image that passes the input check is scored.
+
+---
+
 ## 🛡 Failure handling
 
 Every stage reports its own status, so one failure never hides or fakes another result.
@@ -317,6 +348,7 @@ Every stage reports its own status, so one failure never hides or fakes another 
 | `INFERENCE_TIMEOUT` / `INFERENCE_FAILED` | Model call exceeded its deadline or errored |
 | `EXPLANATION_TIMEOUT` / `EXPLANATION_OOM` | Heatmap stopped by deadline or GPU memory limits |
 | `INVALID_HEATMAP` / `EXPLANATION_DEGENERATE` | Map failed validation or carried no information |
+| `EXPLANATION_FAILED` | Heatmap stopped by any other error; the scores are still returned |
 | `UNAUTHENTICATED` / `FORBIDDEN` | Missing or invalid token, or access to another user's analysis |
 | `STORAGE_FAILED` | Heatmap upload or database write failed; analysis result is still returned |
 
@@ -609,10 +641,10 @@ pneumyst-ai/
 │   ├── training/             # training loops with safe checkpointing
 │   ├── evaluation/           # metrics, calibration, external tests
 │   ├── explain/              # Occlusion Sensitivity heatmaps, checks and display rules
-│   ├── inference/            # standalone inference utilities
-│   ├── tests/                # data, EDA, preprocessing, training and heatmap tests
+│   ├── inference/            # Screener: one X-ray → 15 calibrated findings + heatmaps
+│   ├── tests/                # data, EDA, preprocessing, training, heatmap and inference tests
 │   └── checkpoints/          # local only, git-ignored
-├── notebooks/                # eda, preprocessing, train, explain (sample X-rays kept for visual validation)
+├── notebooks/                # eda, preprocessing, train, explain, inference (sample X-rays kept for visual validation)
 ├── docs/                     # EDA figures, architecture, model cards, limitations
 ├── .env.example
 ├── .gitignore
@@ -719,7 +751,11 @@ The notebook adds what the CLI does not: the TB v2 Shenzhen-dev selection, calib
 
 Open `notebooks/explain.ipynb` (`.venv` kernel). Cells 1–3 load both models and show a gallery; the box-overlap cell makes maps for all 880 boxed NIH test images (about 20–30 minutes the first time) and caches them in `DATA_ROOT/processed/explain/cache/`, so later cells and reruns are fast. Aggregate results go to `docs/figures/explain/`; X-ray figures stay in the data folder.
 
-### 10. Run the backend *(planned)*
+### 10. Check the inference utility
+
+Open `notebooks/inference.ipynb` (`.venv` kernel) and run its three cells: load both models, the parity check from raw files (a few minutes; it should print `PARITY PASS`), and one full result with heatmaps.
+
+### 11. Run the backend *(planned)*
 
 ```powershell
 uvicorn backend.app.main:app --reload
@@ -727,7 +763,7 @@ uvicorn backend.app.main:app --reload
 
 API docs: `http://localhost:8000/docs`
 
-### 11. Run the frontend *(planned)*
+### 12. Run the frontend *(planned)*
 
 ```powershell
 cd frontend
@@ -830,10 +866,10 @@ gantt
 | Calibration and per-finding bands | ✅ Tested (frozen on validation) |
 | Occlusion Sensitivity engine | ✅ Tested (43% of NIH boxes hit vs 8% chance; 10 unit tests) |
 | Heatmap display rules | ✅ Tested (frozen) |
-| Inference utility (both models → scores, bands, heatmaps) | ⏳ Next |
+| Inference utility (both models → scores, bands, heatmaps) | ✅ Tested (matches the evaluated pipeline on 250 raw images; 12 unit tests) |
 | Explanation cache and fallbacks | ⬜ Not started |
 | Orchestrator agent and tools | ⬜ Not started |
-| FastAPI endpoints | ⬜ Not started |
+| FastAPI endpoints | ⏳ Next |
 | Clerk authentication | ⬜ Not started |
 | MySQL schema and migrations | ⬜ Not started |
 | Cloudflare R2 storage | ⬜ Not started |
@@ -856,6 +892,7 @@ Statuses move through **Not started → In progress → Implemented → Tested �
 - Models may learn shortcuts (for example, chest drains for pneumothorax); heatmaps are used to check for this but cannot rule it out.
 - Occlusion Sensitivity is a model-attribution aid, not a causal explanation and not clinical evidence. The hottest spot moves with patch size about half the time, so maps are shown as regions; localization is weakest for Pneumothorax (18% of boxes) and Atelectasis (23%).
 - No prospective or clinical validation has been performed.
+- The app does not yet check that an upload is a chest X-ray; any readable image of reasonable size and shape is scored.
 - TBX11K classes differ strongly in acquisition statistics (brightness, contrast, sharpness), so internal TB scores may overstate real performance; the external Shenzhen / Montgomery test is the primary TB measure.
 - TBX11K has no patient IDs, so two different scans of one patient could fall into different splits; only identical or near-identical images can be detected.
 - Some findings have few or ambiguous training cases. Hernia has only 15 validation positives and is shown as insufficient data (its test AUROC of 0.901 on 86 cases suggests it could be enabled after proper validation); Infiltration (0.696) and Pneumonia (0.722) are the weakest findings.
