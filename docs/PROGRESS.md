@@ -2,7 +2,7 @@
 
 Working notes for continuing the project in a new session. The [README](../README.md) is the public description and holds the full results; this file records **where things are, how we work, and why decisions were made**.
 
-_Last updated: 24 Oct 2026 · `main` at the README results merge (PR #3)._
+_Last updated: 25 Oct 2026 · `main` at the Occlusion Sensitivity commit._
 
 ---
 
@@ -17,7 +17,8 @@ _Last updated: 24 Oct 2026 · `main` at the README results merge (PR #3)._
 | NIH 14-finding model v1 | ✅ trained, calibrated, tested | `notebooks/train.ipynb`, `ml/configs/nih_v1_calibration.json` |
 | TB model v2 (replaces v1) | ✅ trained, calibrated, tested | `notebooks/train.ipynb`, `ml/configs/tb_v2_calibration.json` |
 | README results section | ✅ merged | `README.md` → "Model results" |
-| **Occlusion Sensitivity heatmaps** | ⏳ **next** | — |
+| Occlusion Sensitivity heatmaps + display rules | ✅ done, checked, frozen | `ml/explain/`, `notebooks/explain.ipynb`, `docs/figures/explain/` |
+| **Inference utility** (both models → 15 scores, bands, heatmaps) | ⏳ **next** | — |
 | Backend (FastAPI, Clerk, MySQL, R2), reports, frontend | ⬜ not started | — |
 
 ## 2. Environment
@@ -28,7 +29,8 @@ _Last updated: 24 Oct 2026 · `main` at the README results merge (PR #3)._
 - **Checkpoints (git-ignored, back them up!):** `ml/checkpoints/<run>/best.pt` (selected epoch) and `last.pt` (resume).
   - `tb_densenet121_v1` (superseded), `tb_densenet121_v2` (**current TB**), `nih_densenet121_v1` (**current NIH**)
   - Each run folder also has `history.json`, `val_predictions.csv`, `test_predictions.csv` (and `dev_predictions.csv` for TB v2).
-- **Tests:** `python -m pytest ml/tests -q` → 34 passed.
+- **Tests:** `python -m pytest ml/tests -q` → 44 passed.
+- **Heatmap cache:** `DATA_ROOT/processed/explain/cache/` (one `.npz` per image and setting). The first box-overlap run took about an hour; reruns read the cache.
 
 ## 3. Current models
 
@@ -58,6 +60,8 @@ Key weaknesses (all in README → Limitations): TB catches only 38% of Montgomer
 | Three bands instead of one threshold | A single 90%-sensitivity threshold flagged 24–74% of all images per finding. |
 | Hernia shown as `insufficient_data` | Only 15 validation positives; kept for v1 even though test looked good (changing it after seeing test would be cheating). |
 | Pre-registered TB rule | v2 replaces v1 if Montgomery AUROC higher, ECE lower, false reds not higher → it did. |
+| Occlusion: 32 px patch, stride 16, **blurred** baseline (σ 12), calibrated score drops | Black squares look like training padding; calibrated drops are comparable across findings. ≈1.45 s and 0.44 GB per image. |
+| Heatmap display rules (frozen) | Map only for possible/likely findings; hidden if no region removes ≥ 5% of the score; smoothed σ 8; colour scale = max(peak, 25% of score); outline at half the peak. Low-score maps were noise painted red, and the hottest spot moves with patch size about half the time, so regions are shown instead of points. |
 | No TB v3 for now | Would need chest-X-ray-pretrained weights (check their training data first) or multi-hospital training; left as future work. |
 
 ## 5. How we work
@@ -70,11 +74,23 @@ Key weaknesses (all in README → Limitations): TB catches only 38% of Montgomer
 - X-ray images are **kept** in notebook outputs on purpose (visual validation). Aggregate charts go to `docs/figures/`.
 - The README "reliability tiers" idea was replaced by the bands; don't reintroduce tiers unless asked.
 
-## 6. Next: Occlusion Sensitivity heatmaps
+## 6. Occlusion Sensitivity: results
 
-Plan (not started):
-1. `ml/explain/occlusion.py`: slide a patch (e.g. 32 px, stride 16, baseline = blurred image or mean) over the 320 px image, batch the occluded copies on the GPU, heatmap = drop in **calibrated** score per region; upsample to 320 px.
-2. Works for both models (14 NIH outputs in one pass, TB single output).
-3. Checks from the README evaluation plan: repeatability, sensitivity to patch / stride / baseline, score drop when top regions are occluded, **overlap with the 984 NIH test boxes** (`nih_bboxes_320.csv`), latency and peak memory on the 3050.
-4. Questions to answer: does Edema rely on the "PORTABLE" text or AP features? Where does TB v2 look on missed Montgomery cases?
-5. Then: inference utilities (load both models + configs, one image → 15 calibrated scores, bands, heatmaps), which the backend will call.
+`ml/explain/occlusion.py` (`occlusion_map`, checks, `display_map`, `overlay`), checked in `notebooks/explain.ipynb`. Full write-up in the README → Explainability.
+
+- **Box overlap (984 NIH test boxes):** hottest spot inside the box 43% vs 8% chance (Cardiomegaly 86%, Pneumothorax 18%, Atelectasis 23%).
+- **Deletion:** hiding the hottest 10% drops the score 0.189 vs 0.049 for random; beats random in 99% of 120 images.
+- **Stability:** median Spearman 0.74–0.77 across patch 24/48 and mean fill; same hotspot region only ~50%.
+- **Edema AP shortcut:** not found (border heat AP 0.15 vs PA 0.19, even spread would be 0.42).
+- **TB v2 Montgomery:** caught cases → upper lobes; missed cases mostly look in the right area but score too low.
+- **Display rules:** with them, missed-TB noise maps are hidden, 96% of boxed findings still get a map, and the outline touches the box in 82%.
+
+Notebook tip: after a restart, only the setup, gallery (`boxes = pd.read_csv(...)`), Montgomery (`mg = load_processed(...)`) and display-rules cells are needed to redo the preview. **Skip the box-overlap cell (`rows = []`)** unless the cache is gone.
+
+## 7. Next: inference utility
+
+One entry point the backend will call:
+1. Load both checkpoints and their calibration configs once.
+2. One image → 15 calibrated scores and bands (Hernia `insufficient_data`).
+3. Heatmaps through `display_map`, so only possible/likely findings get a map, with the reason recorded for the others.
+4. Clear statuses for failures (missing checkpoint, bad image, out of memory), matching the README failure-handling codes.
