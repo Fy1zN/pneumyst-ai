@@ -47,6 +47,28 @@ class AnalysisResponse(BaseModel):
     models: list[ModelRef]
     preprocess: dict
     timings_ms: dict[str, float]
+    persistence: Literal["saved", "not_saved"]
+
+
+class FlaggedFinding(BaseModel):
+    finding: str
+    display_name: str
+    band: Literal["possible", "likely"]
+
+
+class AnalysisSummary(BaseModel):
+    id: str
+    created_at: datetime
+    status: Literal["success", "partial"]
+    image_format: Literal["png", "jpeg"]
+    flagged: list[FlaggedFinding]
+
+
+class AnalysisPage(BaseModel):
+    items: list[AnalysisSummary]
+    total: int
+    limit: int
+    offset: int
 
 
 class FindingConfig(BaseModel):
@@ -69,3 +91,4 @@ class HealthResponse(BaseModel):
     status: Literal["ok", "degraded", "down"]
     device: str
     models: dict[str, bool]
+    database: Literal["ok", "unavailable", "not_configured"]

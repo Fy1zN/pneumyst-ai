@@ -17,6 +17,8 @@ class Settings:
     max_upload_bytes: int = 20 * 1024 * 1024
     queue_timeout_s: float = 60.0             # longest wait for the single screening slot
     cors_origins: tuple[str, ...] = ("http://localhost:3000",)
+    database_url: str | None = None           # None: results are returned but not saved
+    dev_user_id: str = "local-dev"            # owner of all analyses until authentication is added
 
 
 def load_settings() -> Settings:
@@ -28,4 +30,6 @@ def load_settings() -> Settings:
         max_upload_bytes=int(os.environ.get("MAX_UPLOAD_MB", "20")) * 1024 * 1024,
         queue_timeout_s=float(os.environ.get("QUEUE_TIMEOUT_S", "60")),
         cors_origins=tuple(o.strip() for o in origins.split(",") if o.strip()),
+        database_url=os.environ.get("DATABASE_URL", "").strip() or None,
+        dev_user_id=os.environ.get("DEV_USER_ID", "local-dev").strip() or "local-dev",
     )

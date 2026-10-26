@@ -1,4 +1,5 @@
-"""Shared fixtures: the real Screener and pipeline around tiny toy models, so tests need no checkpoints or GPU."""
+"""Shared fixtures: the real Screener and pipeline around tiny toy models and an in-memory SQLite database,
+so tests need no checkpoints, GPU or MySQL."""
 from __future__ import annotations
 
 import io
@@ -8,10 +9,14 @@ import pytest
 import torch
 from fastapi.testclient import TestClient
 from PIL import Image
+from sqlalchemy.pool import StaticPool
 from torch import nn
 
 from backend.app.core.config import Settings
+from backend.app.db.models import Base
+from backend.app.db.session import Database
 from backend.app.main import create_app
+from backend.app.repositories.analyses import AnalysisStore
 from backend.app.services.screening import ModelInfo, ScreeningService
 from ml.datasets.targets import NIH_FINDINGS, TB
 from ml.inference.screener import LoadedModel, Screener
@@ -45,6 +50,18 @@ def make_service(nih: nn.Module | None = None, tb: nn.Module | None = None, **se
 
 def default_models() -> tuple[nn.Module, nn.Module]:
     return ConstModel([0.1] * len(NIH_FINDINGS)), ConstModel([0.05])
+
+
+def memory_store() -> AnalysisStore:
+    # One shared connection, because the API runs database calls in worker threads.
+    db = Database("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
+    Base.metadata.create_all(db.engine)
+    return AnalysisStore(db)
+
+
+def make_client(store: AnalysisStore | None = None, user: str = "local-dev", service=None) -> TestClient:
+    service = service or make_service(*default_models())
+    return TestClient(create_app(Settings(dev_user_id=user), service, store), raise_server_exceptions=False)
 
 
 @pytest.fixture

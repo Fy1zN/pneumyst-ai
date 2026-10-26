@@ -21,7 +21,8 @@ def run(service, data: bytes, **params):
 
 def test_health_and_models(client):
     body = client.get("/health").json()
-    assert body == {"status": "ok", "device": "cpu", "models": {"nih_test": True, "tb_test": True}}
+    assert body == {"status": "degraded", "device": "cpu", "models": {"nih_test": True, "tb_test": True},
+                    "database": "not_configured"}  
     models = client.get("/models").json()
     assert [m["name"] for m in models] == ["nih_test", "tb_test"] and len(models[0]["findings"]) == 14
     hernia = next(f for f in models[0]["findings"] if f["finding"] == "Hernia")

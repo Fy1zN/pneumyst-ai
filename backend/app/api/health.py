@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from backend.app.api.deps import get_screening
+from backend.app.api.deps import get_screening, get_store
+from backend.app.repositories.analyses import AnalysisStore
 from backend.app.schemas.analysis import FindingConfig, HealthResponse, ModelStatus
 from backend.app.services.screening import ScreeningService
 from ml.datasets.targets import DISPLAY_NAMES
@@ -11,10 +12,17 @@ router = APIRouter(tags=["service"])
 
 
 @router.get("/health", response_model=HealthResponse)
-def health(screening: ScreeningService = Depends(get_screening)) -> HealthResponse:
+def health(screening: ScreeningService = Depends(get_screening),
+           store: AnalysisStore | None = Depends(get_store)) -> HealthResponse:
     available = {m.name: m.available for m in screening.models}
-    status = "ok" if all(available.values()) else ("degraded" if any(available.values()) else "down")
-    return HealthResponse(status=status, device=screening.device, models=available)
+    database = "not_configured" if store is None else ("ok" if store.db.ping() else "unavailable")
+    if not any(available.values()):
+        status = "down"
+    elif all(available.values()) and database == "ok":
+        status = "ok"
+    else:
+        status = "degraded"
+    return HealthResponse(status=status, device=screening.device, models=available, database=database)
 
 
 @router.get("/models", response_model=list[ModelStatus])
