@@ -2,7 +2,7 @@
 
 Working notes for continuing the project in a new session. The [README](../README.md) is the public description and holds the full results; this file records **where things are, how we work, and why decisions were made**.
 
-_Last updated: 26 Oct 2026 · `main` at backend step 1. **The v1 ML work is complete; the backend is being built in steps.**_
+_Last updated: 27 Oct 2026 · `main` at backend step 2. **The v1 ML work is complete; the backend is being built in steps.**_
 
 ---
 
@@ -20,8 +20,9 @@ _Last updated: 26 Oct 2026 · `main` at backend step 1. **The v1 ML work is comp
 | Occlusion Sensitivity heatmaps + display rules | ✅ done, checked, frozen | `ml/explain/`, `notebooks/explain.ipynb`, `docs/figures/explain/` |
 | Inference utility (both models → 15 scores, bands, heatmaps) | ✅ done, parity-checked | `ml/inference/screener.py`, `notebooks/inference.ipynb` |
 | Backend step 1: FastAPI `/health`, `/models`, `/analyze` (14 API tests) | ✅ done, run live | `backend/app/`, `backend/tests/` |
-| **Backend step 2: MySQL + Alembic + history** | ⏳ **next** (MySQL 8 installed, database and user created) | — |
-| Steps 3–6: Clerk, R2 storage, PDF report + agent, assistant + hardening | ⬜ not started | — |
+| Backend step 2: MySQL + Alembic + history (9 tests) | ✅ done, run live on MySQL | `backend/app/db/`, `backend/app/repositories/`, `backend/app/api/analyses.py`, `backend/migrations/` |
+| **Backend step 3: Clerk authentication** | ⏳ **next** (needs a free Clerk account) | — |
+| Steps 4–6: R2 storage, PDF report + agent, assistant + hardening | ⬜ not started | — |
 | Next.js dashboard, deploy | ⬜ not started | — |
 
 ## 2. Environment
@@ -32,9 +33,11 @@ _Last updated: 26 Oct 2026 · `main` at backend step 1. **The v1 ML work is comp
 - **Checkpoints (git-ignored, back them up!):** `ml/checkpoints/<run>/best.pt` (selected epoch) and `last.pt` (resume).
   - `tb_densenet121_v1` (superseded), `tb_densenet121_v2` (**current TB**), `nih_densenet121_v1` (**current NIH**)
   - Each run folder also has `history.json`, `val_predictions.csv`, `test_predictions.csv` (and `dev_predictions.csv` for TB v2).
-- **Tests:** `python -m pytest ml/tests backend/tests -q` → 70 passed (56 ML + 14 API). A `StarletteDeprecationWarning` about `httpx` is harmless.
+- **Tests:** `python -m pytest ml/tests backend/tests -q` → 79 passed (56 ML + 23 API). A `StarletteDeprecationWarning` about `httpx` is harmless.
 - **MySQL 8.0.46** (Windows service `MySQL80`, port 3306, firewall port not opened) + Workbench. Database `pneumyst` (utf8mb4) and user `pneumyst@localhost` with rights on that database only. `.env` holds `DATABASE_URL` (password of letters and digits) and `DEV_USER_ID=local-dev`.
-- **Run the API:** `uvicorn backend.app.main:app` from the repo root, then `http://localhost:8000/docs`.
+- **Migrations:** `alembic -c backend/alembic.ini upgrade head` (reads `DATABASE_URL` from `.env`). Migration `0001` created `users`, `analyses`, `audit_events` on the local MySQL.
+- **Run the API:** `uvicorn backend.app.main:app` from the repo root, then `http://localhost:8000/docs`. Restart uvicorn after code changes (no auto-reload).
+- **Git habit:** after merging a PR on GitHub, `git pull` (or `git pull --rebase` if you already have local commits) before pushing.
 - **Heatmap cache:** `DATA_ROOT/processed/explain/cache/` (one `.npz` per image and setting). The first box-overlap run took about an hour; reruns read the cache.
 
 ## 3. Current models
@@ -121,9 +124,14 @@ Notebook tip: after a restart, only the setup, gallery (`boxes = pd.read_csv(...
 - Internet TB JPEG → TB 0.94 likely (confirmed TB). Montgomery `MCUCXR_0352_1` → TB 0.036 (a known missed case).
 - Same image twice → identical scores. First request NIH 1.2 s (cuDNN warm-up), later 35 ms; total about 2.9 s with heatmaps, about 0.1 s with `explain=false`. **Hardening TODO:** warm-up pass at startup.
 
+### Step 2 results (run live)
+- Analyze → `persistence: saved`; MySQL shows 1 `analyses` row and 5 `audit_events` (input, both models, NIH heatmaps, TB heatmaps `skipped` with NULL latency).
+- `GET /analyses` (paged, newest first, `flagged` findings), `GET /analyses/{id}`, `DELETE /analyses/{id}` (also removes audit events). Other users get 404. DB failure → results still returned with `STORAGE_FAILED`.
+- Gotcha: `Access denied` from Alembic meant the `.env` password did not match MySQL (placeholder text left in).
+
 ### Plan
 1. ✅ API skeleton
-2. **MySQL + Alembic:** tables `users`, `analyses` (findings/stages/errors/timings/preprocess/models as JSON; `heatmap_keys`, `report`, `report_source` filled later), `audit_events`. `/analyze` saves (`persistence: saved/not_saved`, `STORAGE_FAILED` never loses results); `GET /analyses` (paged), `GET /analyses/{id}`, `DELETE /analyses/{id}`; other users' analyses return 404. Until step 3 the user is `DEV_USER_ID`. Tests on in-memory SQLite.
+2. ✅ **MySQL + Alembic:** tables `users`, `analyses` (findings/stages/errors/timings/preprocess/models as JSON; `heatmap_keys`, `report`, `report_source` filled later), `audit_events`. `/analyze` saves (`persistence: saved/not_saved`, `STORAGE_FAILED` never loses results); `GET /analyses` (paged), `GET /analyses/{id}`, `DELETE /analyses/{id}`; other users' analyses return 404. Until step 3 the user is `DEV_USER_ID`. Tests on in-memory SQLite.
 3. Clerk JWT auth (replaces `DEV_USER_ID`).
 4. Storage (local folder first, then R2) + heatmap PNGs + presigned URLs.
 5. PDF report + audit JSON + agent-written summary (template fallback).
