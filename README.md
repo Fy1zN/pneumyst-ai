@@ -95,7 +95,7 @@ Raw model scores are not probabilities: class weighting inflated the NIH scores 
 - 🩻 **15 chest findings** across infection, pleura, lung tissue and heart, with calibrated scores and honest unlikely / possible / likely bands.
 - 🧠 **Trained computer-vision models** do all image analysis; the LLM never invents predictions.
 - 🔍 **Occlusion Sensitivity** heatmaps with validation, caching and adaptive GPU batching.
-- 🤖 **One orchestrator agent** that sequences six typed, allow-listed tools.
+- 🤖 **A tool-calling assistant agent** (OpenAI or Gemini) that writes report summaries and answers questions about saved results through allow-listed, read-only tools. The screening itself is a fixed, audited pipeline.
 - 🛡️ **Fault tolerance by design**: independent statuses, bounded retries, deadlines, safe error codes.
 - 🔐 **Secure accounts** with Clerk; every analysis is private to the user who created it.
 - 🗄️ **Persistent history** in MySQL, with heatmaps in a private Cloudflare R2 bucket.
@@ -114,6 +114,7 @@ flowchart TB
         U["Upload and preview"]
         R["Results dashboard<br/>scores · heatmap · report"]
         H["History"]
+        Q["Ask about a result"]
     end
 
     CL["Clerk<br/>authentication"]
@@ -124,50 +125,46 @@ flowchart TB
         RP["Repositories<br/>queries scoped to user_id"]
     end
 
-    subgraph AG["Layer C · Orchestrator agent"]
-        O["Single agent<br/>allow-listed tools only"]
-    end
-
-    subgraph CV["Layer B · Computer vision services"]
+    subgraph PL["Layers A + B · Screening pipeline (fixed, no LLM)"]
+        V["Validate · decode<br/>preprocess"]
         TB["TB classifier<br/>DenseNet-121"]
         ML["Multi-label classifier<br/>DenseNet-121"]
-        OS["Occlusion Sensitivity<br/>engine"]
-        LOC["Localization<br/>optional"]
+        OS["Occlusion Sensitivity<br/>+ display rules"]
     end
 
-    subgraph PRE["Layer A · Input and preprocessing"]
-        V["Validation · decoding<br/>resize · normalise"]
+    subgraph AG["Layer C · Assistant agent"]
+        O["Tool-calling LLM<br/>read-only, user-scoped tools"]
     end
 
     subgraph DATA["Persistence"]
-        DB[("MySQL 8<br/>users · analyses")]
+        DB[("MySQL 8<br/>users · analyses · audit_events")]
         R2[("Cloudflare R2<br/>private heatmaps")]
-        C[("Explanation cache")]
     end
 
-    LLM["LLM provider<br/>optional"]
+    LLM["LLM provider<br/>OpenAI or Gemini"]
 
     LG <--> CL
-    U -- "Bearer JWT" --> AU --> EP --> O
+    U -- "Bearer JWT" --> AU --> EP
     AU -. "JWKS" .-> CL
-    O --> V
-    O --> TB & ML
-    O --> OS
-    O --> LOC
-    OS <--> C
-    O -. "sanitised outputs only" .-> LLM
+    EP --> V --> TB & ML --> OS
     EP --> RP --> DB
     EP --> R2
+    EP --> O
+    O -- "allow-listed tools" --> RP
+    O -. "sanitised results only" .-> LLM
     EP --> R
     H --> EP
+    Q --> EP
 ```
 
 | Layer | Responsibility | Key rule |
 |---|---|---|
 | **A · Input** | Validate, decode, preprocess, record metadata | Reject invalid images before any model runs |
-| **B · Vision** | Classification, explanation, optional localization | Models produce every score; nothing is inferred from text |
-| **C · Agent** | Sequence tools, gather outputs, compile flags, write report | Cannot change scores, thresholds or evidence |
+| **B · Vision** | Classification, calibration, bands and explanation | Models produce every score; nothing is inferred from text |
+| **C · Agent** | Write the report summary and answer questions about saved results, using allow-listed, read-only tools | Never runs in the screening path; cannot change scores, thresholds or evidence; falls back to a template |
 | **D · API/UI** | Authenticate, serve, persist and display results | Every request is tied to a verified user; missing models show as unavailable |
+
+**Why the screening is not run by the agent:** the steps are always the same, so letting an LLM choose them could only make results less predictable. The screening is a fixed pipeline with per-stage statuses; the agent works on its saved output, where language helps (summaries and questions) and where every tool call is logged.
 
 ---
 
@@ -180,42 +177,45 @@ sequenceDiagram
     participant UI as Next.js UI
     participant Clerk
     participant API as FastAPI
-    participant Agent as Orchestrator
-    participant CV as Vision services
-    participant XAI as Occlusion engine
+    participant P as Screening pipeline
     participant DB as MySQL
     participant R2 as Cloudflare R2
+    participant Agent as Assistant agent
+    participant LLM as LLM provider
 
     User->>UI: Sign in
     UI->>Clerk: Authenticate
     Clerk-->>UI: Session + JWT
     User->>UI: Upload chest X-ray
     UI->>API: POST /analyze (Bearer JWT)
-    API->>API: Verify JWT → user_id
-    API->>Agent: Start analysis
-    Agent->>CV: validate_image
+    API->>API: Verify JWT → user_id, check size and PNG/JPEG signature
+    API->>P: screen(image)
     alt Invalid image
-        CV-->>Agent: INVALID_IMAGE
-        Agent-->>API: Rejected with safe error code
+        P-->>API: INVALID_IMAGE + reason
+        API-->>UI: 422 with safe error code
     else Valid image
-        Agent->>CV: classify_chest_xray
-        CV-->>Agent: Per-target scores + model versions
-        Agent->>CV: localize_findings
-        CV-->>Agent: Supported outputs or "unsupported"
-        Agent->>XAI: generate_occlusion_explanation
-        alt Explanation succeeds
-            XAI-->>Agent: Validated heatmap
-        else Timeout / OOM / degenerate map
-            XAI-->>Agent: Status + error code, no heatmap
+        P->>P: Preprocess exactly as in training
+        P->>P: TB + NIH models → calibrated scores → bands
+        alt A finding is possible or likely
+            P->>P: Occlusion heatmaps + display rules
+        else Nothing flagged
+            P->>P: Skip heatmaps
         end
-        Agent->>Agent: validate_predictions (fixed thresholds)
-        Agent->>Agent: generate_report (LLM or deterministic)
-        Agent-->>API: Typed result
-        API->>R2: Upload heatmap (private)
-        API->>DB: Save analysis row for user_id
+        P-->>API: Typed result with per-stage statuses
+        API->>R2: Upload shown heatmaps (private)
+        API->>DB: Save analysis + audit events for user_id
+        API-->>UI: Results + short-lived heatmap URLs
     end
-    API-->>UI: JSON response + short-lived heatmap URL
-    UI-->>User: Scores · heatmap · flags · report
+    User->>UI: Open the report or ask a question
+    UI->>API: GET report.pdf / POST /analyses/{id}/ask
+    API->>Agent: Request + analysis id (user-scoped)
+    loop Bounded number of tool calls
+        Agent->>LLM: Request, results so far, allowed tools
+        LLM-->>Agent: Tool request or final text
+        Agent->>DB: Run an allow-listed read-only tool, log the call
+    end
+    Agent-->>API: Checked text, or template fallback
+    API-->>UI: Report summary / answer
 ```
 
 Partial success is a feature: if one model or the explanation fails, every other valid result is still returned and saved with its own status.
@@ -598,6 +598,7 @@ TB v1 reached AUROC 0.998 on TBX11K but was overconfident (scores almost only 0 
 | **Database** | MySQL 8 · SQLAlchemy 2.0 · PyMySQL · Alembic migrations |
 | **Object storage** | Cloudflare R2 (S3-compatible) · boto3 · presigned URLs |
 | **Reports** | ReportLab (PDF) · JSON audit records |
+| **LLM and agent** | OpenAI or Gemini with tool calling (provider set in `.env`) · hand-written tool loop or LangGraph (decided when the agent is built) |
 | **Frontend** | Next.js · React · Tailwind CSS · Recharts · `@clerk/nextjs` |
 | **Optional** | Ultralytics YOLOv8 (TB localization) · U-Net (pneumothorax segmentation) |
 | **Tooling** | Git · GitHub · Antigravity · VS Code |
@@ -618,21 +619,19 @@ pneumyst-ai/
 │   └── types/                # TypeScript mirrors of backend schemas
 ├── backend/
 │   ├── app/
-│   │   ├── api/              # FastAPI routes: analyze, analyses, models, health
-│   │   ├── agents/           # single orchestrator + tool registry
-│   │   ├── auth/             # Clerk JWT verification → current user
-│   │   ├── core/             # config (.env), logging, limits
-│   │   ├── db/               # MySQL engine, session, SQLAlchemy table models
-│   │   ├── repositories/     # database queries, always scoped to user_id
-│   │   ├── storage/          # Cloudflare R2 client, presigned URLs
-│   │   ├── reporting/        # PDF report builder + JSON audit export
-│   │   ├── schemas/          # Pydantic request/response models
-│   │   ├── services/         # inference, explanation, report
-│   │   ├── ml_models/        # ML model registry and checkpoint loaders
-│   │   └── utils/
-│   ├── migrations/           # Alembic migrations
-│   ├── tests/                # unit, integration, API, auth and failure-path tests
-│   └── requirements.txt
+│   │   ├── api/              # FastAPI routes: health, models, analyze (analyses, report, ask planned)
+│   │   ├── agent/            # assistant agent: tool-calling loop + allow-listed tools (planned)
+│   │   ├── auth/             # Clerk JWT verification → current user (planned)
+│   │   ├── core/             # settings from .env, API errors
+│   │   ├── db/               # SQLAlchemy engine, session, table models (planned)
+│   │   ├── repositories/     # database queries, always scoped to user_id (planned)
+│   │   ├── storage/          # Cloudflare R2 client, presigned URLs (planned)
+│   │   ├── reporting/        # PDF report builder + JSON audit export (planned)
+│   │   ├── schemas/          # Pydantic response models
+│   │   ├── services/         # screening pipeline: upload checks, one GPU job at a time
+│   │   └── main.py           # app factory, models loaded once at startup
+│   ├── migrations/           # Alembic migrations (planned)
+│   └── tests/                # API tests with toy models
 ├── ml/
 │   ├── configs/              # versioned training + threshold configs
 │   ├── datasets/             # manifest builders, label mapping, dedupe
@@ -686,7 +685,7 @@ pip install -r requirements.txt
 ### 2. Set up MySQL
 
 ```sql
-CREATE DATABASE pneumyst CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE pneumyst CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 CREATE USER 'pneumyst'@'localhost' IDENTIFIED BY 'change-me';
 GRANT ALL PRIVILEGES ON pneumyst.* TO 'pneumyst'@'localhost';
 ```
@@ -700,7 +699,8 @@ Copy-Item .env.example .env
 Fill in `.env`:
 
 - `DATA_ROOT`: a folder **outside** the repository.
-- `DATABASE_URL`: your MySQL connection string.
+- `DATABASE_URL`: your MySQL connection string. Use a password of letters and digits, or URL-encode characters such as `@`, `:` and `/`.
+- `LLM_PROVIDER` (`openai` or `gemini`), `LLM_API_KEY`, `LLM_MODEL`: optional, for report summaries and the assistant *(planned)*.
 - `CLERK_SECRET_KEY`, `CLERK_JWKS_URL`, `CLERK_ISSUER`: from your Clerk application.
 - `R2_*`: your R2 bucket name, endpoint and API token.
 
@@ -755,13 +755,15 @@ Open `notebooks/explain.ipynb` (`.venv` kernel). Cells 1–3 load both models an
 
 Open `notebooks/inference.ipynb` (`.venv` kernel) and run its three cells: load both models, the parity check from raw files (a few minutes; it should print `PARITY PASS`), and one full result with heatmaps.
 
-### 11. Run the backend *(planned)*
+### 11. Run the backend
+
+From the repository root (both `best.pt` files must be in `ml/checkpoints/`):
 
 ```powershell
-uvicorn backend.app.main:app --reload
+uvicorn backend.app.main:app
 ```
 
-API docs: `http://localhost:8000/docs`
+The models load once at startup. `http://localhost:8000/health` shows the device and model status, and `http://localhost:8000/docs` lets you try every endpoint. Optional settings in `.env`: `MODEL_DEVICE` (`auto`, `cpu` or `cuda`), `MAX_UPLOAD_MB` (default 20), `QUEUE_TIMEOUT_S` (default 60), `CORS_ORIGINS`.
 
 ### 12. Run the frontend *(planned)*
 
@@ -777,18 +779,21 @@ App: `http://localhost:3000`
 
 ## 🔌 API
 
-All endpoints except `/health` require a valid Clerk session token: `Authorization: Bearer <token>`.
+Once authentication is added (step 3), every endpoint except `/health` requires a valid Clerk session token: `Authorization: Bearer <token>`. Errors always return `{"error_code", "detail", "analysis_id"}` and never internal details.
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/health` | Service health and model load status |
-| `GET` | `/models` | Registered models, versions and availability per target |
-| `POST` | `/analyze` | Upload an X-ray; returns scores, explanation status, flags and report, and saves the result |
-| `GET` | `/analyses` | The signed-in user's analysis history |
-| `GET` | `/analyses/{id}` | One past analysis with a short-lived heatmap URL |
-| `DELETE` | `/analyses/{id}` | Delete an analysis and its stored files |
-| `GET` | `/analyses/{id}/report.pdf` | Download the Screening Analysis Report |
-| `GET` | `/analyses/{id}/audit.json` | Download the audit record |
+| Method | Endpoint | Description | Status |
+|---|---|---|:-:|
+| `GET` | `/health` | Service health, device and model load status | ✅ |
+| `GET` | `/models` | Models, checkpoint SHA-256, availability, per-finding thresholds and band status | ✅ |
+| `POST` | `/analyze` | Upload a PNG/JPEG X-ray (`?explain=false` skips heatmaps); returns 15 findings with scores, bands, statuses and timings | ✅ (saving planned) |
+| `GET` | `/analyses` | The signed-in user's analysis history | Planned |
+| `GET` | `/analyses/{id}` | One past analysis with short-lived heatmap URLs | Planned |
+| `DELETE` | `/analyses/{id}` | Delete an analysis and its stored files | Planned |
+| `GET` | `/analyses/{id}/report.pdf` | Download the Screening Analysis Report | Planned |
+| `GET` | `/analyses/{id}/audit.json` | Download the audit record | Planned |
+| `POST` | `/analyses/{id}/ask` | Ask the assistant agent about one saved analysis | Planned |
+
+`/analyze` returns `413 FILE_TOO_LARGE`, `422 INVALID_IMAGE` (with a reason such as `unsupported_format` or `blank_image`), `503 MODEL_UNAVAILABLE` / `SERVER_BUSY`, or `500 INTERNAL_ERROR`. A partial result (for example a failed heatmap) is still `200`, with the failed stage named in `errors`.
 
 Internal file paths and storage keys are never exposed to the frontend.
 
@@ -830,21 +835,24 @@ gantt
     dateFormat YYYY-MM-DD
     axisFormat %b %d
     section Data and models
-    Setup and downloads          :a1, 2026-10-18, 1d
-    Dataset engineering          :a2, 2026-10-19, 1d
-    TB model                     :a3, 2026-10-20, 2d
+    Setup and downloads          :done, a1, 2026-10-18, 1d
+    Dataset engineering          :done, a2, 2026-10-19, 1d
+    TB model                     :done, a3, 2026-10-20, 2d
     Gate 1 TB verified           :milestone, 2026-10-21, 0d
-    Occlusion Sensitivity        :a4, 2026-10-22, 2d
-    NIH 14-finding model         :a5, 2026-10-23, 2d
+    Occlusion Sensitivity        :done, a4, 2026-10-22, 2d
+    NIH 14-finding model         :done, a5, 2026-10-23, 2d
     section Backend
-    FastAPI + Clerk + MySQL + R2 :b1, 2026-10-25, 1d
-    Gate 2 backend works         :milestone, 2026-10-25, 0d
-    Agent + report + audit       :b2, 2026-10-26, 1d
+    API skeleton (health · models · analyze) :done, b1, 2026-10-26, 1d
+    MySQL + Alembic + history    :b2, 2026-10-27, 1d
+    Clerk authentication         :b3, after b2, 1d
+    R2 storage + heatmap images  :b4, after b3, 1d
+    Report + audit + agent       :b5, after b4, 2d
+    Assistant + hardening        :b6, after b5, 1d
     section Frontend and release
-    Next.js + login + history    :c1, 2026-10-27, 2d
-    Tests and docs               :c2, 2026-10-29, 1d
-    Deploy                       :c3, 2026-10-30, 1d
-    v1.0                         :milestone, 2026-10-31, 0d
+    Next.js + login + history    :c1, after b6, 3d
+    Tests and docs               :c2, after c1, 1d
+    Deploy                       :c3, after c2, 1d
+    v1.0                         :milestone, after c3, 0d
 ```
 
 ---
@@ -868,10 +876,10 @@ gantt
 | Heatmap display rules | ✅ Tested (frozen) |
 | Inference utility (both models → scores, bands, heatmaps) | ✅ Tested (matches the evaluated pipeline on 250 raw images; 12 unit tests) |
 | Explanation cache and fallbacks | ⬜ Not started |
-| Orchestrator agent and tools | ⬜ Not started |
-| FastAPI endpoints | ⏳ Next |
+| Assistant agent (tool calling, read-only tools, report summary) | ⬜ Not started |
+| FastAPI endpoints | ⏳ In progress (health, models, analyze ✅ tested; 14 API tests) |
 | Clerk authentication | ⬜ Not started |
-| MySQL schema and migrations | ⬜ Not started |
+| MySQL schema and migrations | ⏳ Next (database and app user created) |
 | Cloudflare R2 storage | ⬜ Not started |
 | Screening report (PDF) + audit record (JSON) | ⬜ Not started |
 | Next.js dashboard and history | ⬜ Not started |

@@ -2,7 +2,7 @@
 
 Working notes for continuing the project in a new session. The [README](../README.md) is the public description and holds the full results; this file records **where things are, how we work, and why decisions were made**.
 
-_Last updated: 25 Oct 2026 · `main` at the inference utility commit. **The v1 ML work is complete.**_
+_Last updated: 26 Oct 2026 · `main` at backend step 1. **The v1 ML work is complete; the backend is being built in steps.**_
 
 ---
 
@@ -19,8 +19,10 @@ _Last updated: 25 Oct 2026 · `main` at the inference utility commit. **The v1 M
 | README results section | ✅ merged | `README.md` → "Model results" |
 | Occlusion Sensitivity heatmaps + display rules | ✅ done, checked, frozen | `ml/explain/`, `notebooks/explain.ipynb`, `docs/figures/explain/` |
 | Inference utility (both models → 15 scores, bands, heatmaps) | ✅ done, parity-checked | `ml/inference/screener.py`, `notebooks/inference.ipynb` |
-| **Backend** (FastAPI, Clerk, MySQL, R2) | ⏳ **next** | — |
-| Orchestrator + PDF report + audit JSON, Next.js dashboard, deploy | ⬜ not started | — |
+| Backend step 1: FastAPI `/health`, `/models`, `/analyze` (14 API tests) | ✅ done, run live | `backend/app/`, `backend/tests/` |
+| **Backend step 2: MySQL + Alembic + history** | ⏳ **next** (MySQL 8 installed, database and user created) | — |
+| Steps 3–6: Clerk, R2 storage, PDF report + agent, assistant + hardening | ⬜ not started | — |
+| Next.js dashboard, deploy | ⬜ not started | — |
 
 ## 2. Environment
 
@@ -30,7 +32,9 @@ _Last updated: 25 Oct 2026 · `main` at the inference utility commit. **The v1 M
 - **Checkpoints (git-ignored, back them up!):** `ml/checkpoints/<run>/best.pt` (selected epoch) and `last.pt` (resume).
   - `tb_densenet121_v1` (superseded), `tb_densenet121_v2` (**current TB**), `nih_densenet121_v1` (**current NIH**)
   - Each run folder also has `history.json`, `val_predictions.csv`, `test_predictions.csv` (and `dev_predictions.csv` for TB v2).
-- **Tests:** `python -m pytest ml/tests -q` → 56 passed.
+- **Tests:** `python -m pytest ml/tests backend/tests -q` → 70 passed (56 ML + 14 API). A `StarletteDeprecationWarning` about `httpx` is harmless.
+- **MySQL 8.0.46** (Windows service `MySQL80`, port 3306, firewall port not opened) + Workbench. Database `pneumyst` (utf8mb4) and user `pneumyst@localhost` with rights on that database only. `.env` holds `DATABASE_URL` (password of letters and digits) and `DEV_USER_ID=local-dev`.
+- **Run the API:** `uvicorn backend.app.main:app` from the repo root, then `http://localhost:8000/docs`.
 - **Heatmap cache:** `DATA_ROOT/processed/explain/cache/` (one `.npz` per image and setting). The first box-overlap run took about an hour; reruns read the cache.
 
 ## 3. Current models
@@ -74,6 +78,8 @@ Key weaknesses (all in README → Limitations): TB catches only 38% of Montgomer
 - After editing any `ml/` file, **restart the notebook kernel** and rerun the setup cell (Python caches imports). Never "Run All" on `train.ipynb`; the training cells are commented out after use.
 - X-ray images are **kept** in notebook outputs on purpose (visual validation). Aggregate charts go to `docs/figures/`.
 - The README "reliability tiers" idea was replaced by the bands; don't reintroduce tiers unless asked.
+- **Code style:** professional code: no emojis in code or code output, comments only where they explain *why*. VS Code "Insert Final Newline" should be on.
+- Never show passwords or API keys in screenshots or chat; they live only in `.env`.
 
 ## 6. Occlusion Sensitivity: results
 
@@ -98,6 +104,29 @@ Notebook tip: after a restart, only the setup, gallery (`boxes = pd.read_csv(...
 - **Windows note:** never put large byte strings in `pytest.mark.parametrize` without `ids=`; the test ID goes into an environment variable with a 32,767-character limit.
 - **For the UI later:** rare findings become "possible" at very low scores (Cardiomegaly from 0.013), so lead with the band word rather than the percentage. Example seen: a missed Montgomery TB case where the Cardiomegaly and Pneumonia maps lit up the right upper lung.
 
-## 8. Next: backend
+## 8. Backend
 
-Plan first (explain, then code), as usual. Planned in the README: FastAPI + Clerk JWT + MySQL (SQLAlchemy + Alembic) + Cloudflare R2, with the screener loaded once at startup. The backend machine needs `ml/checkpoints/tb_densenet121_v2/best.pt` and `ml/checkpoints/nih_densenet121_v1/best.pt`.
+### Decisions
+| Decision | Why |
+|---|---|
+| **Screening is a fixed pipeline**, not run by an agent | The steps never change; an LLM choosing them could only make results less predictable. Every stage reports its own status. |
+| **Assistant agent on top of saved results** (step 5–6) | Tool-calling LLM (OpenAI or Gemini via `LLM_PROVIDER`) for the report summary and `POST /analyses/{id}/ask`. Read-only, user-scoped, allow-listed tools (`get_analysis`, `list_history`, `compare_analyses`, `get_finding_info`, `get_model_card`, `draft_report`), bounded tool calls, timeout, every call in `audit_events`, output checks, template fallback. Hand-written loop vs LangGraph: decide at step 5 (LangGraph preferred over plain LangChain if a framework is used). |
+| **No RAG** | Decided against for now; the LLM only works from the analysis results and our own finding descriptions. |
+| Upload format by file signature, PNG/JPEG only | File names and content types can lie; no DICOM means no patient metadata arrives. |
+| One screening at a time (`threading.Lock`, 60 s queue timeout → `503 SERVER_BUSY`) | 4 GB GPU. A running GPU job cannot be cancelled safely, so the timeout covers the queue wait only. |
+| Removed `agents/`, `ml_models/`, `utils/` packages | The pipeline lives in `services/`, models load through `Screener`; the agent will get `backend/app/agent/`. |
+
+### Step 1 results (run live)
+- `/health` ok on CUDA; `/models` lists checkpoint SHA-256 for both models.
+- Internet TB JPEG → TB 0.94 likely (confirmed TB). Montgomery `MCUCXR_0352_1` → TB 0.036 (a known missed case).
+- Same image twice → identical scores. First request NIH 1.2 s (cuDNN warm-up), later 35 ms; total about 2.9 s with heatmaps, about 0.1 s with `explain=false`. **Hardening TODO:** warm-up pass at startup.
+
+### Plan
+1. ✅ API skeleton
+2. **MySQL + Alembic:** tables `users`, `analyses` (findings/stages/errors/timings/preprocess/models as JSON; `heatmap_keys`, `report`, `report_source` filled later), `audit_events`. `/analyze` saves (`persistence: saved/not_saved`, `STORAGE_FAILED` never loses results); `GET /analyses` (paged), `GET /analyses/{id}`, `DELETE /analyses/{id}`; other users' analyses return 404. Until step 3 the user is `DEV_USER_ID`. Tests on in-memory SQLite.
+3. Clerk JWT auth (replaces `DEV_USER_ID`).
+4. Storage (local folder first, then R2) + heatmap PNGs + presigned URLs.
+5. PDF report + audit JSON + agent-written summary (template fallback).
+6. Assistant `ask` endpoint + hardening (startup warm-up, limits, full test list).
+
+The backend machine needs `ml/checkpoints/tb_densenet121_v2/best.pt` and `ml/checkpoints/nih_densenet121_v1/best.pt`. CPU deployment makes heatmaps slow (30–60 s); decide at deploy time (GPU host, background heatmaps, or coarser grid).
