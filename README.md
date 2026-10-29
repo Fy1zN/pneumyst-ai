@@ -621,10 +621,10 @@ pneumyst-ai/
 │   ├── app/
 │   │   ├── api/              # FastAPI routes: health, models, analyze (analyses, report, ask planned)
 │   │   ├── agent/            # assistant agent: tool-calling loop + allow-listed tools (planned)
-│   │   ├── auth/             # Clerk JWT verification → current user (planned)
+│   │   ├── auth/             # Clerk JWT verification → current user
 │   │   ├── core/             # settings from .env, API errors
-│   │   ├── db/               # SQLAlchemy engine, session, table models (planned)
-│   │   ├── repositories/     # database queries, always scoped to user_id (planned)
+│   │   ├── db/               # SQLAlchemy engine, session, table models
+│   │   ├── repositories/     # database queries, always scoped to user_id
 │   │   ├── storage/          # Cloudflare R2 client, presigned URLs (planned)
 │   │   ├── reporting/        # PDF report builder + JSON audit export (planned)
 │   │   ├── schemas/          # Pydantic response models
@@ -701,16 +701,16 @@ Fill in `.env`:
 - `DATA_ROOT`: a folder **outside** the repository.
 - `DATABASE_URL`: your MySQL connection string. Use a password of letters and digits, or URL-encode characters such as `@`, `:` and `/`.
 - `LLM_PROVIDER` (`openai` or `gemini`), `LLM_API_KEY`, `LLM_MODEL`: optional, for report summaries and the assistant *(planned)*.
-- `CLERK_SECRET_KEY`, `CLERK_JWKS_URL`, `CLERK_ISSUER`: from your Clerk application.
+- `CLERK_SECRET_KEY`, `CLERK_JWKS_URL`, `CLERK_ISSUER`: from your Clerk application. `CLERK_AUTHORIZED_PARTIES`: the frontend origins allowed to send tokens (default `http://localhost:3000`).
+- `AUTH_MODE`: `clerk` (default) verifies every request. `dev` skips verification and uses `DEV_USER_ID`, for local work only; never use it when deployed.
 - `R2_*`: your R2 bucket name, endpoint and API token.
 
 The frontend uses its own `frontend/.env.local` with `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and the API URL.
 
-### 4. Create the database tables *(planned)*
+### 4. Create the database tables
 
 ```powershell
-cd backend
-alembic upgrade head
+alembic -c backend/alembic.ini upgrade head
 ```
 
 ### 5. Build the dataset manifests
@@ -779,16 +779,16 @@ App: `http://localhost:3000`
 
 ## 🔌 API
 
-Once authentication is added (step 3), every endpoint except `/health` requires a valid Clerk session token: `Authorization: Bearer <token>`. Errors always return `{"error_code", "detail", "analysis_id"}` and never internal details.
+Every endpoint except `/health` requires a valid Clerk session token: `Authorization: Bearer <token>`. A missing or invalid token returns `401 UNAUTHENTICATED`; if Clerk's signing keys cannot be fetched the API returns `503 AUTH_UNAVAILABLE`. Each user only ever sees their own analyses; another user's analysis returns `404`. Errors always return `{"error_code", "detail", "analysis_id"}` and never internal details.
 
 | Method | Endpoint | Description | Status |
 |---|---|---|:-:|
 | `GET` | `/health` | Service health, device and model load status | ✅ |
 | `GET` | `/models` | Models, checkpoint SHA-256, availability, per-finding thresholds and band status | ✅ |
-| `POST` | `/analyze` | Upload a PNG/JPEG X-ray (`?explain=false` skips heatmaps); returns 15 findings with scores, bands, statuses and timings | ✅ (saving planned) |
-| `GET` | `/analyses` | The signed-in user's analysis history | Planned |
-| `GET` | `/analyses/{id}` | One past analysis with short-lived heatmap URLs | Planned |
-| `DELETE` | `/analyses/{id}` | Delete an analysis and its stored files | Planned |
+| `POST` | `/analyze` | Upload a PNG/JPEG X-ray (`?explain=false` skips heatmaps); returns 15 findings with scores, bands, statuses and timings; saves the result | ✅ |
+| `GET` | `/analyses` | The signed-in user's analysis history (paged, flagged findings) | ✅ |
+| `GET` | `/analyses/{id}` | One past analysis (short-lived heatmap URLs planned) | ✅ |
+| `DELETE` | `/analyses/{id}` | Delete an analysis and its audit events (stored files planned) | ✅ |
 | `GET` | `/analyses/{id}/report.pdf` | Download the Screening Analysis Report | Planned |
 | `GET` | `/analyses/{id}/audit.json` | Download the audit record | Planned |
 | `POST` | `/analyses/{id}/ask` | Ask the assistant agent about one saved analysis | Planned |
@@ -843,8 +843,8 @@ gantt
     NIH 14-finding model         :done, a5, 2026-10-23, 2d
     section Backend
     API skeleton (health · models · analyze) :done, b1, 2026-10-26, 1d
-    MySQL + Alembic + history    :b2, 2026-10-27, 1d
-    Clerk authentication         :b3, after b2, 1d
+    MySQL + Alembic + history    :done, b2, 2026-10-27, 1d
+    Clerk authentication         :done, b3, 2026-10-29, 1d
     R2 storage + heatmap images  :b4, after b3, 1d
     Report + audit + agent       :b5, after b4, 2d
     Assistant + hardening        :b6, after b5, 1d
@@ -877,9 +877,9 @@ gantt
 | Inference utility (both models → scores, bands, heatmaps) | ✅ Tested (matches the evaluated pipeline on 250 raw images; 12 unit tests) |
 | Explanation cache and fallbacks | ⬜ Not started |
 | Assistant agent (tool calling, read-only tools, report summary) | ⬜ Not started |
-| FastAPI endpoints | ⏳ In progress (health, models, analyze ✅ tested; 14 API tests) |
-| Clerk authentication | ⬜ Not started |
-| MySQL schema and migrations | ⏳ Next (database and app user created) |
+| FastAPI endpoints | ⏳ In progress (health, models, analyze, history ✅ verified in running app; report and ask planned) |
+| Clerk authentication | ✅ Tested (19 auth tests; live 401 checks; real sign-in comes with the frontend) |
+| MySQL schema and migrations | ✅ Verified in running app (Alembic `0001` on MySQL 8.0) |
 | Cloudflare R2 storage | ⬜ Not started |
 | Screening report (PDF) + audit record (JSON) | ⬜ Not started |
 | Next.js dashboard and history | ⬜ Not started |

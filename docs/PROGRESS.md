@@ -2,7 +2,7 @@
 
 Working notes for continuing the project in a new session. The [README](../README.md) is the public description and holds the full results; this file records **where things are, how we work, and why decisions were made**.
 
-_Last updated: 27 Oct 2026 · `main` at backend step 2. **The v1 ML work is complete; the backend is being built in steps.**_
+_Last updated: 29 Oct 2026 · `main` at backend step 3. **The v1 ML work is complete; the backend is being built in steps.**_
 
 ---
 
@@ -21,8 +21,9 @@ _Last updated: 27 Oct 2026 · `main` at backend step 2. **The v1 ML work is comp
 | Inference utility (both models → 15 scores, bands, heatmaps) | ✅ done, parity-checked | `ml/inference/screener.py`, `notebooks/inference.ipynb` |
 | Backend step 1: FastAPI `/health`, `/models`, `/analyze` (14 API tests) | ✅ done, run live | `backend/app/`, `backend/tests/` |
 | Backend step 2: MySQL + Alembic + history (9 tests) | ✅ done, run live on MySQL | `backend/app/db/`, `backend/app/repositories/`, `backend/app/api/analyses.py`, `backend/migrations/` |
-| **Backend step 3: Clerk authentication** | ⏳ **next** (needs a free Clerk account) | — |
-| Steps 4–6: R2 storage, PDF report + agent, assistant + hardening | ⬜ not started | — |
+| Backend step 3: Clerk authentication (19 tests) | ✅ done, run live (401 checks) | `backend/app/auth/`, `backend/app/api/deps.py` |
+| **Backend step 4: storage + heatmap images** | ⏳ **next** | — |
+| Steps 5–6: PDF report + agent, assistant + hardening | ⬜ not started | — |
 | Next.js dashboard, deploy | ⬜ not started | — |
 
 ## 2. Environment
@@ -33,8 +34,9 @@ _Last updated: 27 Oct 2026 · `main` at backend step 2. **The v1 ML work is comp
 - **Checkpoints (git-ignored, back them up!):** `ml/checkpoints/<run>/best.pt` (selected epoch) and `last.pt` (resume).
   - `tb_densenet121_v1` (superseded), `tb_densenet121_v2` (**current TB**), `nih_densenet121_v1` (**current NIH**)
   - Each run folder also has `history.json`, `val_predictions.csv`, `test_predictions.csv` (and `dev_predictions.csv` for TB v2).
-- **Tests:** `python -m pytest ml/tests backend/tests -q` → 79 passed (56 ML + 23 API). A `StarletteDeprecationWarning` about `httpx` is harmless.
+- **Tests:** `python -m pytest ml/tests backend/tests -q` → 98 passed (56 ML + 42 backend). A `StarletteDeprecationWarning` about `httpx` is harmless.
 - **MySQL 8.0.46** (Windows service `MySQL80`, port 3306, firewall port not opened) + Workbench. Database `pneumyst` (utf8mb4) and user `pneumyst@localhost` with rights on that database only. `.env` holds `DATABASE_URL` (password of letters and digits) and `DEV_USER_ID=local-dev`.
+- **Clerk:** development instance `endless-adder-4170`. `.env` holds `CLERK_SECRET_KEY`, `CLERK_ISSUER`, `CLERK_JWKS_URL`, `CLERK_AUTHORIZED_PARTIES`. `AUTH_MODE=dev` for daily local work (no token needed), `AUTH_MODE=clerk` to test auth; never `dev` when deployed. The publishable key goes in `frontend/.env.local` later.
 - **Migrations:** `alembic -c backend/alembic.ini upgrade head` (reads `DATABASE_URL` from `.env`). Migration `0001` created `users`, `analyses`, `audit_events` on the local MySQL.
 - **Run the API:** `uvicorn backend.app.main:app` from the repo root, then `http://localhost:8000/docs`. Restart uvicorn after code changes (no auto-reload).
 - **Git habit:** after merging a PR on GitHub, `git pull` (or `git pull --rebase` if you already have local commits) before pushing.
@@ -129,10 +131,17 @@ Notebook tip: after a restart, only the setup, gallery (`boxes = pd.read_csv(...
 - `GET /analyses` (paged, newest first, `flagged` findings), `GET /analyses/{id}`, `DELETE /analyses/{id}` (also removes audit events). Other users get 404. DB failure → results still returned with `STORAGE_FAILED`.
 - Gotcha: `Access denied` from Alembic meant the `.env` password did not match MySQL (placeholder text left in).
 
+### Step 3 results (run live)
+- Clerk session tokens verified locally with the instance JWKS (RS256, cached keys): issuer, expiry, not-before, issued-at, subject and authorized party (`azp`) checked. The token's `sub` is the user id for every query.
+- `/analyze`, `/analyses*` and `/models` need a token; `/health` stays public. Swagger has an **Authorize** button (bearer token).
+- Live: no token → `401 "sign in required"`; fake token → `401 "invalid or expired session"` (server logs the reason). JWKS unreachable → `503 AUTH_UNAVAILABLE`. The app refuses to start in `clerk` mode without issuer and JWKS settings.
+- A real signed-in token (200) is checked once the frontend exists: sign in, then `await window.Clerk.session.getToken()` in the browser console.
+- The Clerk secret key was exposed in chat once and rotated. Secrets live only in `.env`.
+
 ### Plan
 1. ✅ API skeleton
-2. ✅ **MySQL + Alembic:** tables `users`, `analyses` (findings/stages/errors/timings/preprocess/models as JSON; `heatmap_keys`, `report`, `report_source` filled later), `audit_events`. `/analyze` saves (`persistence: saved/not_saved`, `STORAGE_FAILED` never loses results); `GET /analyses` (paged), `GET /analyses/{id}`, `DELETE /analyses/{id}`; other users' analyses return 404. Until step 3 the user is `DEV_USER_ID`. Tests on in-memory SQLite.
-3. Clerk JWT auth (replaces `DEV_USER_ID`).
+2. ✅ **MySQL + Alembic:** tables `users`, `analyses` (findings/stages/errors/timings/preprocess/models as JSON; `heatmap_keys`, `report`, `report_source` filled later), `audit_events`. `/analyze` saves (`persistence: saved/not_saved`, `STORAGE_FAILED` never loses results); `GET /analyses` (paged), `GET /analyses/{id}`, `DELETE /analyses/{id}`; other users' analyses return 404. Tests on in-memory SQLite.
+3. ✅ **Clerk JWT auth:** the token's user id scopes every query; `AUTH_MODE=dev` keeps `DEV_USER_ID` for local work.
 4. Storage (local folder first, then R2) + heatmap PNGs + presigned URLs.
 5. PDF report + audit JSON + agent-written summary (template fallback).
 6. Assistant `ask` endpoint + hardening (startup warm-up, limits, full test list).
