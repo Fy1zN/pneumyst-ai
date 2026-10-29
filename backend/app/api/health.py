@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from backend.app.api.deps import get_screening, get_store
+from backend.app.api.deps import get_current_user, get_screening, get_store
 from backend.app.repositories.analyses import AnalysisStore
 from backend.app.schemas.analysis import FindingConfig, HealthResponse, ModelStatus
 from backend.app.services.screening import ScreeningService
@@ -25,7 +25,7 @@ def health(screening: ScreeningService = Depends(get_screening),
     return HealthResponse(status=status, device=screening.device, models=available, database=database)
 
 
-@router.get("/models", response_model=list[ModelStatus])
+@router.get("/models", response_model=list[ModelStatus], dependencies=[Depends(get_current_user)])
 def models(screening: ScreeningService = Depends(get_screening)) -> list[ModelStatus]:
     return [ModelStatus(
         name=m.name, available=m.available, error=m.error, checkpoint_sha256=m.checkpoint_sha256,

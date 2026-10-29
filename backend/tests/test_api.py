@@ -15,14 +15,14 @@ def upload(client: TestClient, data: bytes, name: str = "cxr.png", **params):
 
 
 def run(service, data: bytes, **params):
-    with TestClient(create_app(Settings(), service), raise_server_exceptions=False) as c:
+    with TestClient(create_app(Settings(auth_mode="dev"), service), raise_server_exceptions=False) as c:
         return upload(c, data, **params)
 
 
 def test_health_and_models(client):
     body = client.get("/health").json()
     assert body == {"status": "degraded", "device": "cpu", "models": {"nih_test": True, "tb_test": True},
-                    "database": "not_configured"}  
+                    "database": "not_configured"}
     models = client.get("/models").json()
     assert [m["name"] for m in models] == ["nih_test", "tb_test"] and len(models[0]["findings"]) == 14
     hernia = next(f for f in models[0]["findings"] if f["finding"] == "Hernia")
@@ -31,9 +31,9 @@ def test_health_and_models(client):
 
 def test_health_reports_missing_models():
     nih, _ = default_models()
-    with TestClient(create_app(Settings(), make_service(nih, None))) as c:
+    with TestClient(create_app(Settings(auth_mode="dev"), make_service(nih, None))) as c:
         assert c.get("/health").json()["status"] == "degraded"
-    with TestClient(create_app(Settings(), make_service(None, None))) as c:
+    with TestClient(create_app(Settings(auth_mode="dev"), make_service(None, None))) as c:
         assert c.get("/health").json()["status"] == "down"
 
 

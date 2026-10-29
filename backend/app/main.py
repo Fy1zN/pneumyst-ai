@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.app.api import analyses, analyze, health
+from backend.app.auth.clerk import ClerkVerifier
 from backend.app.core.config import Settings, load_settings
 from backend.app.core.errors import ApiError
 from backend.app.db.session import Database
@@ -20,13 +21,26 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger("pneumyst")
 
 
+def make_verifier(settings: Settings) -> ClerkVerifier | None:
+    if settings.auth_mode == "dev":
+        logger.warning("AUTH_MODE=dev: every request is treated as user %r. Never use this when deployed.",
+                       settings.dev_user_id)
+        return None
+    if settings.auth_mode != "clerk":
+        raise RuntimeError(f"AUTH_MODE must be 'clerk' or 'dev', not {settings.auth_mode!r}")
+    if not settings.clerk_issuer or not settings.clerk_jwks_url:
+        raise RuntimeError("AUTH_MODE=clerk needs CLERK_ISSUER and CLERK_JWKS_URL in .env")
+    return ClerkVerifier(settings.clerk_issuer, settings.clerk_jwks_url, settings.clerk_authorized_parties)
+
+
 def create_app(settings: Settings | None = None, screening: ScreeningService | None = None,
-               store: AnalysisStore | None = None) -> FastAPI:
+               store: AnalysisStore | None = None, verifier: ClerkVerifier | None = None) -> FastAPI:
     settings = settings or load_settings()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.settings = settings
+        app.state.verifier = verifier or make_verifier(settings)
         app.state.screening = screening or ScreeningService.load(settings)
         for m in app.state.screening.models:
             logger.info("model %s: %s", m.name, "loaded" if m.available else m.error)
@@ -38,7 +52,7 @@ def create_app(settings: Settings | None = None, screening: ScreeningService | N
         if owned:
             app.state.store.db.dispose()
 
-    app = FastAPI(title="PNEUMYST AI", version="0.2.0", lifespan=lifespan,
+    app = FastAPI(title="PNEUMYST AI", version="0.3.0", lifespan=lifespan,
                   description="Research screening API for chest X-rays. Not a diagnostic device.")
     app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins),
                        allow_methods=["GET", "POST", "DELETE"], allow_headers=["Authorization", "Content-Type"])

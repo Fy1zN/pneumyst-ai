@@ -18,7 +18,11 @@ class Settings:
     queue_timeout_s: float = 60.0             # longest wait for the single screening slot
     cors_origins: tuple[str, ...] = ("http://localhost:3000",)
     database_url: str | None = None           # None: results are returned but not saved
-    dev_user_id: str = "local-dev"            # owner of all analyses until authentication is added
+    auth_mode: str = "clerk"                  # "clerk" verifies session tokens; "dev" trusts everyone (local only)
+    dev_user_id: str = "local-dev"            # owner of all analyses in dev mode
+    clerk_issuer: str | None = None
+    clerk_jwks_url: str | None = None
+    clerk_authorized_parties: tuple[str, ...] = ("http://localhost:3000",)
 
 
 def load_settings() -> Settings:
@@ -31,5 +35,10 @@ def load_settings() -> Settings:
         queue_timeout_s=float(os.environ.get("QUEUE_TIMEOUT_S", "60")),
         cors_origins=tuple(o.strip() for o in origins.split(",") if o.strip()),
         database_url=os.environ.get("DATABASE_URL", "").strip() or None,
+        auth_mode=os.environ.get("AUTH_MODE", "clerk").strip().lower() or "clerk",
         dev_user_id=os.environ.get("DEV_USER_ID", "local-dev").strip() or "local-dev",
+        clerk_issuer=os.environ.get("CLERK_ISSUER", "").strip() or None,
+        clerk_jwks_url=os.environ.get("CLERK_JWKS_URL", "").strip() or None,
+        clerk_authorized_parties=tuple(p.strip() for p in os.environ.get(
+            "CLERK_AUTHORIZED_PARTIES", "http://localhost:3000").split(",") if p.strip()),
     )
