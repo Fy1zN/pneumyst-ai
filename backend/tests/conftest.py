@@ -18,6 +18,7 @@ from backend.app.db.session import Database
 from backend.app.main import create_app
 from backend.app.repositories.analyses import AnalysisStore
 from backend.app.services.screening import ModelInfo, ScreeningService
+from backend.app.storage.files import LocalStorage
 from ml.datasets.targets import NIH_FINDINGS, TB
 from ml.inference.screener import LoadedModel, Screener
 
@@ -59,10 +60,11 @@ def memory_store() -> AnalysisStore:
     return AnalysisStore(db)
 
 
-def make_client(store: AnalysisStore | None = None, user: str = "local-dev", service=None) -> TestClient:
+def make_client(store: AnalysisStore | None = None, user: str = "local-dev", service=None,
+                storage: LocalStorage | None = None) -> TestClient:
     service = service or make_service(*default_models())
     settings = Settings(auth_mode="dev", dev_user_id=user)
-    return TestClient(create_app(settings, service, store), raise_server_exceptions=False)
+    return TestClient(create_app(settings, service, store, storage=storage), raise_server_exceptions=False)
 
 
 @pytest.fixture

@@ -35,6 +35,11 @@ class ModelRef(BaseModel):
     checkpoint_sha256: str | None
 
 
+class ImageLinks(BaseModel):
+    image: str
+    heatmaps: dict[str, str]
+
+
 class AnalysisResponse(BaseModel):
     id: str
     created_at: datetime
@@ -48,6 +53,7 @@ class AnalysisResponse(BaseModel):
     preprocess: dict
     timings_ms: dict[str, float]
     persistence: Literal["saved", "not_saved"]
+    images: ImageLinks | None = None
 
 
 class FlaggedFinding(BaseModel):

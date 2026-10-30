@@ -9,6 +9,7 @@ from backend.app.auth.clerk import AuthUnavailable, TokenError
 from backend.app.core.errors import ApiError
 from backend.app.repositories.analyses import AnalysisStore
 from backend.app.services.screening import ScreeningService
+from backend.app.storage.files import LocalStorage
 
 logger = logging.getLogger("pneumyst.auth")
 bearer = HTTPBearer(auto_error=False, description="Clerk session token")
@@ -20,6 +21,10 @@ def get_screening(request: Request) -> ScreeningService:
 
 def get_store(request: Request) -> AnalysisStore | None:
     return request.app.state.store
+
+
+def get_storage(request: Request) -> LocalStorage | None:
+    return request.app.state.storage
 
 
 def get_current_user(request: Request,

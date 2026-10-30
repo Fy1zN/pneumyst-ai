@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from backend.app.api import analyses, analyze, health
+from backend.app.api import analyses, analyze, files, health
 from backend.app.auth.clerk import ClerkVerifier
 from backend.app.core.config import Settings, load_settings
 from backend.app.core.errors import ApiError
@@ -16,6 +16,7 @@ from backend.app.db.session import Database
 from backend.app.repositories.analyses import AnalysisStore
 from backend.app.schemas.analysis import ErrorResponse
 from backend.app.services.screening import ScreeningService
+from backend.app.storage.files import LocalStorage
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("pneumyst")
@@ -33,14 +34,25 @@ def make_verifier(settings: Settings) -> ClerkVerifier | None:
     return ClerkVerifier(settings.clerk_issuer, settings.clerk_jwks_url, settings.clerk_authorized_parties)
 
 
+def make_storage(settings: Settings) -> LocalStorage | None:
+    if settings.storage_dir is None:
+        logger.warning("DATA_ROOT and STORAGE_DIR are not set: images will not be stored")
+        return None
+    if not settings.file_signing_key or len(settings.file_signing_key) < 32:
+        raise RuntimeError("image storage needs FILE_SIGNING_KEY in .env, at least 32 characters")
+    return LocalStorage(settings.storage_dir, settings.file_signing_key, settings.file_url_ttl_s)
+
+
 def create_app(settings: Settings | None = None, screening: ScreeningService | None = None,
-               store: AnalysisStore | None = None, verifier: ClerkVerifier | None = None) -> FastAPI:
+               store: AnalysisStore | None = None, verifier: ClerkVerifier | None = None,
+               storage: LocalStorage | None = None) -> FastAPI:
     settings = settings or load_settings()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.settings = settings
         app.state.verifier = verifier or make_verifier(settings)
+        app.state.storage = storage or make_storage(settings)
         app.state.screening = screening or ScreeningService.load(settings)
         for m in app.state.screening.models:
             logger.info("model %s: %s", m.name, "loaded" if m.available else m.error)
@@ -52,13 +64,14 @@ def create_app(settings: Settings | None = None, screening: ScreeningService | N
         if owned:
             app.state.store.db.dispose()
 
-    app = FastAPI(title="PNEUMYST AI", version="0.3.0", lifespan=lifespan,
+    app = FastAPI(title="PNEUMYST AI", version="0.4.0", lifespan=lifespan,
                   description="Research screening API for chest X-rays. Not a diagnostic device.")
     app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins),
                        allow_methods=["GET", "POST", "DELETE"], allow_headers=["Authorization", "Content-Type"])
     app.include_router(health.router)
     app.include_router(analyze.router)
     app.include_router(analyses.router)
+    app.include_router(files.router)
 
     @app.exception_handler(ApiError)
     async def api_error(_: Request, exc: ApiError) -> JSONResponse:
