@@ -360,23 +360,23 @@ Every stage reports its own status, so one failure never hides or fakes another 
 |---|---|---|
 | Authentication | **Clerk** | User identity and sessions; passwords never touch our backend |
 | Database | **MySQL 8** | Users and analysis records: scores, statuses, flags, report, model versions |
-| File storage | **Cloudflare R2** (private bucket) | Heatmap overlays; original X-rays only if the user opts in |
+| File storage | **Local folder** now, **Cloudflare R2** (private bucket) at deploy | The 320 px image the models saw and the heatmap overlays; never the original upload |
 
 ### Database tables
 
 | Table | Key columns |
 |---|---|
-| `users` | `id` (Clerk user ID, `VARCHAR(64)`), `email`, `consent_accepted_at`, `created_at` |
-| `analyses` | `id` (`CHAR(36)` UUID), `user_id`, `created_at`, `model_versions` (JSON), `scores` (JSON), `statuses` (JSON), `flags` (JSON), `report` (TEXT), `report_source` (`llm` / `deterministic`), `case_context` (JSON, nullable, user-entered), `heatmap_key`, `image_key` (nullable), `image_hash` |
-| `audit_events` | `id`, `analysis_id`, `step`, `tool`, `status`, `error_code`, `latency_ms`, `config` (JSON), `fallback_used`, `created_at` |
+| `users` | `id` (Clerk user ID, `VARCHAR(64)`), `email`, `created_at` |
+| `analyses` | `id` (UUID), `user_id`, `created_at`, `status`, `image_sha256`, `image_format`, `findings` / `stages` / `errors` / `models` / `preprocess` / `timings_ms` (JSON), `heatmap_keys` (JSON: storage keys of the image and overlays), `report` (TEXT), `report_source` (`llm` / `template`) |
+| `audit_events` | `id`, `analysis_id`, `step`, `status`, `error_code`, `latency_ms`, `created_at` |
 
 All tables use `utf8mb4`, timestamps are stored in UTC, and schema changes go through Alembic migrations.
 
 ### Privacy rules
 
-- **Results are saved by default; X-rays are not.** The original image is stored only if the user explicitly chooses to save it.
+- **Original uploads are never stored.** Only the 320 px image the models saw and the shown heatmap overlays are kept, re-encoded as PNG so no metadata or file name survives. The upload's SHA-256 is kept to recognise repeats.
 - **Users only see their own data.** Every query is filtered by the verified `user_id`, and tests check that one user cannot read another user's analysis.
-- **Private storage only.** Heatmaps are served through presigned URLs that expire within minutes.
+- **Private storage only.** Images are served through signed links that expire after 5 minutes (HMAC-signed by the API locally, presigned URLs on R2). Storage keys never reach the browser.
 - **Consent at sign-up.** Users confirm they will upload only de-identified or public research images.
 - **PNG/JPEG only.** DICOM is not accepted, so no patient metadata arrives in file headers.
 - **Real deletion.** Deleting an analysis removes its database row and its stored files.
@@ -596,9 +596,9 @@ TB v1 reached AUROC 0.998 on TBX11K but was overconfident (scores almost only 0 
 | **Backend** | FastAPI · Uvicorn · Pydantic · OpenAPI/Swagger |
 | **Authentication** | Clerk (Next.js components · JWT verification via JWKS in FastAPI) |
 | **Database** | MySQL 8 · SQLAlchemy 2.0 · PyMySQL · Alembic migrations |
-| **Object storage** | Cloudflare R2 (S3-compatible) · boto3 · presigned URLs |
+| **Object storage** | Local folder with HMAC-signed links · Cloudflare R2 (S3-compatible, boto3, presigned URLs) at deploy |
 | **Reports** | ReportLab (PDF) · JSON audit records |
-| **LLM and agent** | OpenAI or Gemini with tool calling (provider set in `.env`) · hand-written tool loop or LangGraph (decided when the agent is built) |
+| **LLM and agent** | OpenAI or Gemini (provider set in `.env`) · **LangGraph** for the report-writing workflow (draft, check, retry or template fallback) and the tool-calling assistant agent |
 | **Frontend** | Next.js · React · Tailwind CSS · Recharts · `@clerk/nextjs` |
 | **Optional** | Ultralytics YOLOv8 (TB localization) · U-Net (pneumothorax segmentation) |
 | **Tooling** | Git · GitHub · Antigravity · VS Code |
@@ -620,12 +620,12 @@ pneumyst-ai/
 ├── backend/
 │   ├── app/
 │   │   ├── api/              # FastAPI routes: health, models, analyze (analyses, report, ask planned)
-│   │   ├── agent/            # assistant agent: tool-calling loop + allow-listed tools (planned)
+│   │   ├── agent/            # LangGraph report workflow and assistant agent + allow-listed tools (planned)
 │   │   ├── auth/             # Clerk JWT verification → current user
 │   │   ├── core/             # settings from .env, API errors
 │   │   ├── db/               # SQLAlchemy engine, session, table models
 │   │   ├── repositories/     # database queries, always scoped to user_id
-│   │   ├── storage/          # Cloudflare R2 client, presigned URLs (planned)
+│   │   ├── storage/          # image PNGs on local disk + signed links (R2 at deploy)
 │   │   ├── reporting/        # PDF report builder + JSON audit export (planned)
 │   │   ├── schemas/          # Pydantic response models
 │   │   ├── services/         # screening pipeline: upload checks, one GPU job at a time
@@ -703,7 +703,8 @@ Fill in `.env`:
 - `LLM_PROVIDER` (`openai` or `gemini`), `LLM_API_KEY`, `LLM_MODEL`: optional, for report summaries and the assistant *(planned)*.
 - `CLERK_SECRET_KEY`, `CLERK_JWKS_URL`, `CLERK_ISSUER`: from your Clerk application. `CLERK_AUTHORIZED_PARTIES`: the frontend origins allowed to send tokens (default `http://localhost:3000`).
 - `AUTH_MODE`: `clerk` (default) verifies every request. `dev` skips verification and uses `DEV_USER_ID`, for local work only; never use it when deployed.
-- `R2_*`: your R2 bucket name, endpoint and API token.
+- `FILE_SIGNING_KEY`: a random secret of at least 32 characters for image links, e.g. from `python -c "import secrets; print(secrets.token_urlsafe(48))"`. Required once storage is on; images go to `STORAGE_DIR`, or `DATA_ROOT/storage` when it is empty.
+- `R2_*`: your R2 bucket name, endpoint and API token *(at deploy)*.
 
 The frontend uses its own `frontend/.env.local` with `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and the API URL.
 
@@ -785,10 +786,11 @@ Every endpoint except `/health` requires a valid Clerk session token: `Authoriza
 |---|---|---|:-:|
 | `GET` | `/health` | Service health, device and model load status | ✅ |
 | `GET` | `/models` | Models, checkpoint SHA-256, availability, per-finding thresholds and band status | ✅ |
-| `POST` | `/analyze` | Upload a PNG/JPEG X-ray (`?explain=false` skips heatmaps); returns 15 findings with scores, bands, statuses and timings; saves the result | ✅ |
+| `POST` | `/analyze` | Upload a PNG/JPEG X-ray (`?explain=false` skips heatmaps); returns 15 findings with scores, bands, statuses and timings; saves the result and its images and returns image links | ✅ |
 | `GET` | `/analyses` | The signed-in user's analysis history (paged, flagged findings) | ✅ |
-| `GET` | `/analyses/{id}` | One past analysis (short-lived heatmap URLs planned) | ✅ |
-| `DELETE` | `/analyses/{id}` | Delete an analysis and its audit events (stored files planned) | ✅ |
+| `GET` | `/analyses/{id}` | One past analysis with fresh 5-minute image links | ✅ |
+| `DELETE` | `/analyses/{id}` | Delete an analysis, its audit events and its stored images | ✅ |
+| `GET` | `/files/{key}?expires=&sig=` | Serve a stored image through a signed, expiring link (no token: `<img>` tags cannot send one, so the signature is the proof) | ✅ |
 | `GET` | `/analyses/{id}/report.pdf` | Download the Screening Analysis Report | Planned |
 | `GET` | `/analyses/{id}/audit.json` | Download the audit record | Planned |
 | `POST` | `/analyses/{id}/ask` | Ask the assistant agent about one saved analysis | Planned |
@@ -845,7 +847,7 @@ gantt
     API skeleton (health · models · analyze) :done, b1, 2026-10-26, 1d
     MySQL + Alembic + history    :done, b2, 2026-10-27, 1d
     Clerk authentication         :done, b3, 2026-10-29, 1d
-    R2 storage + heatmap images  :b4, after b3, 1d
+    Image storage + signed links :done, b4, 2026-10-30, 1d
     Report + audit + agent       :b5, after b4, 2d
     Assistant + hardening        :b6, after b5, 1d
     section Frontend and release
@@ -876,11 +878,12 @@ gantt
 | Heatmap display rules | ✅ Tested (frozen) |
 | Inference utility (both models → scores, bands, heatmaps) | ✅ Tested (matches the evaluated pipeline on 250 raw images; 12 unit tests) |
 | Explanation cache and fallbacks | ⬜ Not started |
-| Assistant agent (tool calling, read-only tools, report summary) | ⬜ Not started |
+| Assistant agent (LangGraph, tool calling, read-only tools, report summary) | ⏳ Next |
 | FastAPI endpoints | ⏳ In progress (health, models, analyze, history ✅ verified in running app; report and ask planned) |
 | Clerk authentication | ✅ Tested (19 auth tests; live 401 checks; real sign-in comes with the frontend) |
 | MySQL schema and migrations | ✅ Verified in running app (Alembic `0001` on MySQL 8.0) |
-| Cloudflare R2 storage | ⬜ Not started |
+| Image storage (local) + signed links | ✅ Verified in running app (16 storage tests) |
+| Cloudflare R2 storage | ⬜ Not started (at deploy) |
 | Screening report (PDF) + audit record (JSON) | ⬜ Not started |
 | Next.js dashboard and history | ⬜ Not started |
 | Test suite (18 required cases + auth isolation + report checks) | ⬜ Not started |
