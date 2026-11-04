@@ -5,6 +5,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -76,7 +77,7 @@ def create_app(settings: Settings | None = None, screening: ScreeningService | N
         if owned:
             app.state.store.db.dispose()
 
-    app = FastAPI(title="PNEUMYST AI", version="0.5.0", lifespan=lifespan,
+    app = FastAPI(title="PNEUMYST AI", version="0.6.0", lifespan=lifespan,
                   description="Research screening API for chest X-rays. Not a diagnostic device.")
     app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins),
                        allow_methods=["GET", "POST", "DELETE"], allow_headers=["Authorization", "Content-Type"])
@@ -89,6 +90,14 @@ def create_app(settings: Settings | None = None, screening: ScreeningService | N
     async def api_error(_: Request, exc: ApiError) -> JSONResponse:
         body = ErrorResponse(error_code=exc.error_code, detail=exc.detail, analysis_id=exc.analysis_id)
         return JSONResponse(status_code=exc.status_code, content=body.model_dump())
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid_request(_: Request, exc: RequestValidationError) -> JSONResponse:
+        # Same error shape as every other failure, naming the first field that was rejected.
+        first = exc.errors()[0]
+        field = ".".join(str(part) for part in first["loc"][1:]) or "request"
+        body = ErrorResponse(error_code="INVALID_REQUEST", detail=f"{field}: {first['msg']}")
+        return JSONResponse(status_code=422, content=body.model_dump())
 
     @app.exception_handler(Exception)
     async def unexpected_error(request: Request, exc: Exception) -> JSONResponse:

@@ -4,9 +4,15 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 Band = Literal["unlikely", "possible", "likely"]
+AgeBand = Literal["0-17", "18-29", "30-39", "40-49", "50-59", "60-69", "70-79", "80+"]
+Sex = Literal["female", "male", "other"]
+Reason = Literal["cough or fever", "TB screening", "breathlessness", "chest pain", "follow-up", "pre-operative",
+                 "routine check", "other"]
+# Letters, digits, '-' and '_' only, so a full name with spaces cannot be typed in by accident.
+CASE_NUMBER_PATTERN = r"^[A-Za-z0-9_-]{1,32}$"
 
 
 class ErrorResponse(BaseModel):
@@ -28,6 +34,15 @@ class Finding(BaseModel):
     likely_threshold: float | None
     heatmap: str
     heatmap_peak: float | None
+
+
+class CaseContext(BaseModel):
+    """De-identified details entered by the user. Shown on the report, never used by the models or the LLM."""
+
+    case_number: str | None = Field(None, pattern=CASE_NUMBER_PATTERN)
+    age_band: AgeBand | None = None
+    sex: Sex | None = None
+    reason: Reason | None = None
 
 
 class ModelRef(BaseModel):
@@ -54,6 +69,7 @@ class AnalysisResponse(BaseModel):
     timings_ms: dict[str, float]
     persistence: Literal["saved", "not_saved"]
     images: ImageLinks | None = None
+    case_context: CaseContext | None = None
 
 
 class ReportResponse(BaseModel):
@@ -77,6 +93,7 @@ class AnalysisSummary(BaseModel):
     status: Literal["success", "partial"]
     image_format: Literal["png", "jpeg"]
     flagged: list[FlaggedFinding]
+    case_number: str | None = None
 
 
 class AnalysisPage(BaseModel):

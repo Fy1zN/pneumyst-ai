@@ -63,6 +63,7 @@ class AnalysisRecord(Base):
     report_source: Mapped[str | None] = mapped_column(String(16))
     report_model: Mapped[str | None] = mapped_column(String(64))
     report_created_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    case_context: Mapped[dict | None] = mapped_column(JSON)
 
 
 class AuditEventRecord(Base):

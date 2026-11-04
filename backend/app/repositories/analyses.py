@@ -18,16 +18,17 @@ class AnalysisStore:
     def __init__(self, db: Database):
         self.db = db
 
-    def save(self, user_id: str, analysis: Analysis, models: list[dict], image_keys: dict | None = None) -> None:
+    def save(self, user_id: str, analysis: Analysis, models: list[dict], image_keys: dict | None = None,
+             case_context: dict | None = None) -> None:
         result = analysis.result.to_dict()
         try:
-            self._save(user_id, analysis, result, models, image_keys)
+            self._save(user_id, analysis, result, models, image_keys, case_context)
         except IntegrityError:
             # Another request created the same new user at the same moment; the user row now exists.
-            self._save(user_id, analysis, result, models, image_keys)
+            self._save(user_id, analysis, result, models, image_keys, case_context)
 
     def _save(self, user_id: str, analysis: Analysis, result: dict, models: list[dict],
-              image_keys: dict | None) -> None:
+              image_keys: dict | None, case_context: dict | None) -> None:
         timings = result["timings_ms"]
         with self.db.session.begin() as s:
             if s.get(UserRecord, user_id) is None:
@@ -37,7 +38,8 @@ class AnalysisStore:
                 id=analysis.id, user_id=user_id, created_at=analysis.created_at, status=result["status"],
                 image_sha256=analysis.image_sha256, image_format=analysis.image_format,
                 findings=result["findings"], stages=result["stages"], errors=result["errors"], models=models,
-                preprocess=result["preprocess"], timings_ms=timings, heatmap_keys=image_keys or None))
+                preprocess=result["preprocess"], timings_ms=timings, heatmap_keys=image_keys or None,
+                case_context=case_context or None))
             s.flush()
             for step, status in result["stages"].items():
                 s.add(AuditEventRecord(

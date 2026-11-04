@@ -39,6 +39,9 @@ class LocalStorage:
         tmp.write_bytes(data)
         os.replace(tmp, path)
 
+    def read(self, key: str) -> bytes:
+        return self.path(key).read_bytes()
+
     def delete_analysis(self, analysis_id: str) -> None:
         folder = self.root / "analyses" / str(uuid.UUID(analysis_id))
         if folder.exists():
