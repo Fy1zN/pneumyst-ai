@@ -36,3 +36,8 @@ pytest>=8.0
 # --- Notebooks ---
 ipykernel>=6.29
 jupyter>=1.0
+
+# --- LLM report workflow and assistant ---
+langgraph>=1.2
+langchain-google-genai>=4.4
+langchain-openai>=1.7

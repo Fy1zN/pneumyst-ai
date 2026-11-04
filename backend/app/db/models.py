@@ -61,6 +61,8 @@ class AnalysisRecord(Base):
     heatmap_keys: Mapped[dict | None] = mapped_column(JSON)
     report: Mapped[str | None] = mapped_column(Text)
     report_source: Mapped[str | None] = mapped_column(String(16))
+    report_model: Mapped[str | None] = mapped_column(String(64))
+    report_created_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
 
 class AuditEventRecord(Base):

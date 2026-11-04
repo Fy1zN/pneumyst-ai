@@ -26,6 +26,12 @@ class Settings:
     storage_dir: Path | None = None           # None: images are not stored
     file_signing_key: str | None = None
     file_url_ttl_s: int = 300                 # lifetime of image links
+    llm_provider: str = "gemini"              # "gemini" or "openai"
+    llm_api_key: str | None = None            # None: reports use the template
+    llm_model: str | None = None
+    llm_fallback_model: str | None = None     # tried when the main model is busy, slow or failing
+    llm_thinking_level: str | None = None     # Gemini 3+ only, e.g. "low" for short summaries
+    llm_timeout_s: float = 20.0
 
 
 def load_settings() -> Settings:
@@ -49,4 +55,10 @@ def load_settings() -> Settings:
         storage_dir=Path(storage_dir) if storage_dir else None,
         file_signing_key=os.environ.get("FILE_SIGNING_KEY", "").strip() or None,
         file_url_ttl_s=int(os.environ.get("FILE_URL_TTL_S", "300")),
+        llm_provider=os.environ.get("LLM_PROVIDER", "gemini").strip().lower() or "gemini",
+        llm_api_key=os.environ.get("LLM_API_KEY", "").strip() or None,
+        llm_model=os.environ.get("LLM_MODEL", "").strip() or None,
+        llm_fallback_model=os.environ.get("LLM_FALLBACK_MODEL", "").strip() or None,
+        llm_thinking_level=os.environ.get("LLM_THINKING_LEVEL", "").strip().lower() or None,
+        llm_timeout_s=float(os.environ.get("LLM_TIMEOUT_S", "20")),
     )

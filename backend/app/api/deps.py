@@ -5,6 +5,7 @@ import logging
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from backend.app.agent.report_graph import ReportWriter
 from backend.app.auth.clerk import AuthUnavailable, TokenError
 from backend.app.core.errors import ApiError
 from backend.app.repositories.analyses import AnalysisStore
@@ -25,6 +26,10 @@ def get_store(request: Request) -> AnalysisStore | None:
 
 def get_storage(request: Request) -> LocalStorage | None:
     return request.app.state.storage
+
+
+def get_report_writer(request: Request) -> ReportWriter:
+    return request.app.state.report_writer
 
 
 def get_current_user(request: Request,

@@ -8,6 +8,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from backend.app.agent.llm import make_chat_model
+from backend.app.agent.report_graph import ReportWriter
 from backend.app.api import analyses, analyze, files, health
 from backend.app.auth.clerk import ClerkVerifier
 from backend.app.core.config import Settings, load_settings
@@ -43,9 +45,18 @@ def make_storage(settings: Settings) -> LocalStorage | None:
     return LocalStorage(settings.storage_dir, settings.file_signing_key, settings.file_url_ttl_s)
 
 
+def make_report_writer(settings: Settings) -> ReportWriter:
+    model = make_chat_model(settings)
+    if model is None:
+        logger.warning("LLM_API_KEY is not set: reports will use the template summary")
+    else:
+        logger.info("reports written by %s %s", settings.llm_provider, settings.llm_model)
+    return ReportWriter(model, settings.llm_model)
+
+
 def create_app(settings: Settings | None = None, screening: ScreeningService | None = None,
                store: AnalysisStore | None = None, verifier: ClerkVerifier | None = None,
-               storage: LocalStorage | None = None) -> FastAPI:
+               storage: LocalStorage | None = None, report_writer: ReportWriter | None = None) -> FastAPI:
     settings = settings or load_settings()
 
     @asynccontextmanager
@@ -53,6 +64,7 @@ def create_app(settings: Settings | None = None, screening: ScreeningService | N
         app.state.settings = settings
         app.state.verifier = verifier or make_verifier(settings)
         app.state.storage = storage or make_storage(settings)
+        app.state.report_writer = report_writer or make_report_writer(settings)
         app.state.screening = screening or ScreeningService.load(settings)
         for m in app.state.screening.models:
             logger.info("model %s: %s", m.name, "loaded" if m.available else m.error)
@@ -64,7 +76,7 @@ def create_app(settings: Settings | None = None, screening: ScreeningService | N
         if owned:
             app.state.store.db.dispose()
 
-    app = FastAPI(title="PNEUMYST AI", version="0.4.0", lifespan=lifespan,
+    app = FastAPI(title="PNEUMYST AI", version="0.5.0", lifespan=lifespan,
                   description="Research screening API for chest X-rays. Not a diagnostic device.")
     app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins),
                        allow_methods=["GET", "POST", "DELETE"], allow_headers=["Authorization", "Content-Type"])

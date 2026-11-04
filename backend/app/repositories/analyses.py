@@ -1,12 +1,17 @@
 """Saved analyses. Every query is filtered by the owner, so one user can never read another user's data."""
 from __future__ import annotations
 
-from sqlalchemy import delete, func, select
+from typing import TYPE_CHECKING
+
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 
-from backend.app.db.models import AnalysisRecord, AuditEventRecord, UserRecord
+from backend.app.db.models import AnalysisRecord, AuditEventRecord, UserRecord, utcnow
 from backend.app.db.session import Database
 from backend.app.services.screening import Analysis
+
+if TYPE_CHECKING:
+    from backend.app.agent.report_graph import ReportResult
 
 
 class AnalysisStore:
@@ -59,6 +64,26 @@ class AnalysisStore:
             return list(s.scalars(select(AuditEventRecord).join(AnalysisRecord)
                                   .where(AnalysisRecord.id == analysis_id, AnalysisRecord.user_id == user_id)
                                   .order_by(AuditEventRecord.id)).all())
+
+    def save_report(self, user_id: str, analysis_id: str, result: ReportResult) -> AnalysisRecord | None:
+        """Store the first report written for an analysis; a report saved meanwhile by another request wins.
+
+        A template written because the LLM failed is only audited, not kept, so the next request tries the LLM again.
+        """
+        now = utcnow()
+        keep = result.reason != "LLM_FAILED"
+        with self.db.session.begin() as s:
+            saved = 0
+            if keep:
+                saved = s.execute(update(AnalysisRecord)
+                                  .where(AnalysisRecord.id == analysis_id, AnalysisRecord.user_id == user_id,
+                                         AnalysisRecord.report.is_(None))
+                                  .values(report=result.text, report_source=result.source,
+                                          report_model=result.model, report_created_at=now)).rowcount
+            if saved or not keep:
+                s.add(AuditEventRecord(analysis_id=analysis_id, step="report", status=result.source,
+                                       error_code=result.reason, latency_ms=result.latency_ms, created_at=now))
+        return self.get(user_id, analysis_id)
 
     def delete(self, user_id: str, analysis_id: str) -> bool:
         with self.db.session.begin() as s:

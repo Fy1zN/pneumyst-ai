@@ -56,6 +56,15 @@ class AnalysisResponse(BaseModel):
     images: ImageLinks | None = None
 
 
+class ReportResponse(BaseModel):
+    analysis_id: str
+    summary: str
+    source: Literal["llm", "template"]
+    model: str | None
+    created_at: datetime
+    disclaimer: str
+
+
 class FlaggedFinding(BaseModel):
     finding: str
     display_name: str

@@ -6,11 +6,20 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.exc import SQLAlchemyError
 
-from backend.app.api.deps import get_current_user, get_storage, get_store
+from backend.app.agent.facts import build_facts
+from backend.app.agent.report_graph import DISCLAIMER, ReportWriter
+from backend.app.api.deps import get_current_user, get_report_writer, get_storage, get_store
 from backend.app.core.errors import ApiError
-from backend.app.db.models import AnalysisRecord
+from backend.app.db.models import AnalysisRecord, utcnow
 from backend.app.repositories.analyses import AnalysisStore
-from backend.app.schemas.analysis import AnalysisPage, AnalysisResponse, AnalysisSummary, ErrorResponse, FlaggedFinding
+from backend.app.schemas.analysis import (
+    AnalysisPage,
+    AnalysisResponse,
+    AnalysisSummary,
+    ErrorResponse,
+    FlaggedFinding,
+    ReportResponse,
+)
 from backend.app.storage.files import LocalStorage
 from backend.app.storage.images import image_links, remove_images
 
@@ -62,6 +71,25 @@ async def get_analysis(analysis_id: str, request: Request, store: AnalysisStore 
         status=row.status, stages=row.stages, errors=row.errors, findings=row.findings, models=row.models,
         preprocess=row.preprocess, timings_ms=row.timings_ms, persistence="saved",
         images=image_links(storage, row.heatmap_keys, str(request.base_url)))
+
+
+@router.get("/{analysis_id}/report", response_model=ReportResponse, responses=ERRORS)
+async def get_report(analysis_id: str, store: AnalysisStore | None = Depends(get_store),
+                     writer: ReportWriter = Depends(get_report_writer),
+                     user_id: str = Depends(get_current_user)) -> ReportResponse:
+    """Written on first request and stored, so a saved report never calls the LLM again."""
+    analysis_id = require_uuid(analysis_id)
+    row = await call_store(store, "get", user_id, analysis_id)
+    if row is not None and row.report is None:
+        result = await run_in_threadpool(writer.write, build_facts(row.findings, row.errors))
+        row = await call_store(store, "save_report", user_id, analysis_id, result)
+        if row is not None and row.report is None:
+            return ReportResponse(analysis_id=row.id, summary=result.text, source=result.source, model=None,
+                                  created_at=utcnow(), disclaimer=DISCLAIMER)
+    if row is None:
+        raise ApiError(404, "ANALYSIS_NOT_FOUND", "no such analysis", analysis_id)
+    return ReportResponse(analysis_id=row.id, summary=row.report, source=row.report_source, model=row.report_model,
+                          created_at=row.report_created_at, disclaimer=DISCLAIMER)
 
 
 @router.delete("/{analysis_id}", status_code=204, response_class=Response, responses=ERRORS)

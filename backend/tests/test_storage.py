@@ -189,4 +189,4 @@ def test_storage_needs_a_signing_key(tmp_path):
 def test_files_route_without_storage_is_forbidden():
     with make_client(service=spot_service()) as c:
         r = c.get(f"/files/analyses/{'0' * 8}-0000-0000-0000-{'0' * 12}/image.png", params={"expires": 1, "sig": "x"})
-        assert c.app.version == "0.4.0" and r.status_code == 403
+        assert r.status_code == 403
