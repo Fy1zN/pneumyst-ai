@@ -367,7 +367,7 @@ Every stage reports its own status, so one failure never hides or fakes another 
 | Table | Key columns |
 |---|---|
 | `users` | `id` (Clerk user ID, `VARCHAR(64)`), `email`, `created_at` |
-| `analyses` | `id` (UUID), `user_id`, `created_at`, `status`, `image_sha256`, `image_format`, `findings` / `stages` / `errors` / `models` / `preprocess` / `timings_ms` (JSON), `heatmap_keys` (JSON: storage keys of the image and overlays), `report` (TEXT), `report_source` (`llm` / `template`) |
+| `analyses` | `id` (UUID), `user_id`, `created_at`, `status`, `image_sha256`, `image_format`, `findings` / `stages` / `errors` / `models` / `preprocess` / `timings_ms` (JSON), `heatmap_keys` (JSON: storage keys of the image and overlays), `report` (TEXT), `report_source` (`llm` / `template`), `report_model`, `report_created_at`, `case_context` (JSON, optional, de-identified) |
 | `audit_events` | `id`, `analysis_id`, `step`, `status`, `error_code`, `latency_ms`, `created_at` |
 
 All tables use `utf8mb4`, timestamps are stored in UTC, and schema changes go through Alembic migrations.
@@ -380,7 +380,8 @@ All tables use `utf8mb4`, timestamps are stored in UTC, and schema changes go th
 - **Consent at sign-up.** Users confirm they will upload only de-identified or public research images.
 - **PNG/JPEG only.** DICOM is not accepted, so no patient metadata arrives in file headers.
 - **Real deletion.** Deleting an analysis removes its database row and its stored files.
-- **Nothing identifiable goes to the LLM.** Only sanitised scores and statuses are sent, and only when the LLM is enabled.
+- **Nothing identifiable goes to the LLM.** Only finding names, bands and scores are sent, and only when the LLM is enabled; case context is never sent.
+- **No patient identity is stored.** Case context is de-identified and chosen from fixed lists; the patient's name or ID is only ever written by hand on a printed report.
 
 ---
 
@@ -392,23 +393,30 @@ Every analysis can be exported in two forms. Neither contains patient-identifyin
 flowchart LR
     A["Stored analysis<br/>MySQL + R2"] --> B["Screening Analysis Report<br/>PDF · for people"]
     A --> C["Audit record<br/>JSON · for reproducibility"]
-    D["Optional case context<br/>entered by user"] --> B
+    D["Optional case context<br/>de-identified, entered by user"] --> B
     E["Clinician review<br/>signed by a human"] -.-> B
 ```
 
 ### Screening Analysis Report (PDF)
 
+`GET /analyses/{id}/report.pdf` builds a two-page A4 report from the saved analysis on every request (nothing is stored). It opens in the browser; `?download=true` saves it as `pneumyst-<case number>-report.pdf`.
+
 | Section | Contents |
 |---|---|
-| Header | "Research Screening Analysis — not a diagnostic report", analysis ID, date/time (UTC) |
-| Case context *(optional)* | Age band, sex, reason for X-ray, entered by the user and labelled **"provided by user, not used by the models"** |
-| Image | Thumbnail, heatmap overlay with legend, dimensions, format, image hash |
-| Results | Per-target score, validated threshold, above/below threshold, status |
-| Explanation | Target explained, method, grid settings, any fallback used |
-| Flags | Low-confidence results, unavailable models, quality warnings |
-| Summary | Report text generated only from the results above (LLM or deterministic template) |
-| Limitations | Research-use statement and known limitations |
-| Clinician review | Blank fields for reviewer name, decision, signature and date |
+| Header | "Research prototype - not a diagnostic report" banner, analysis ID, analysis and report times (UTC), short image fingerprint, format, app version |
+| Case context | Case number, age band, sex and reason for the X-ray, labelled **"provided by the user, not used by the models or the summary"**, plus a blank line for the patient's name or ID written by hand |
+| Summary | The LangGraph summary, labelled with its source: the model that wrote it, or "template summary" |
+| Images | The 320 px image the models saw and up to three heatmaps (likely findings first), with a legend explaining that heatmaps are not lesion outlines |
+| Findings | All 15 findings grouped likely, possible, unlikely, not banded, unavailable; band written as a word (readable in grey), score, both thresholds, heatmap status |
+| Models and processing | Model names, checkpoint hashes, every stage status and error |
+| Limitations | Research use, NIH label noise, the Montgomery TB gap (AUROC 0.891 vs 0.744), the AP/PA shortcut, Hernia not banded, what heatmaps mean |
+| Clinician review | Blank fields for reviewer name, decision, signature and date; the AI never fills them in |
+
+If images are not stored, the report says so instead of failing. If no summary exists yet, it is written first (same workflow as `/report`).
+
+### Case context (optional, de-identified)
+
+Entered with the upload as four optional form fields, each from a fixed list so free text cannot carry names or histories: **case number** (letters, digits, `-` and `_` only, up to 32 characters, no spaces), **age band** (`0-17` … `80+`), **sex** (`female` / `male` / `other`) and **reason for the X-ray** (eight fixed choices). Anything else returns `422 INVALID_REQUEST`. The clinic links its own case number to the real patient in its own records; PNEUMYST AI never knows who it is. Case context is stored with the analysis, shown in history and on the report, and is **never used by the models or sent to the LLM**.
 
 **Never included:** name, patient ID, date of birth, exact address, phone number or any field filled in by AI.
 
@@ -435,7 +443,7 @@ flowchart LR
 
 ### Audit record (JSON)
 
-Analysis ID, user ID, timestamps, image hash, model names, versions and checkpoint hashes, preprocessing configuration, thresholds used, every tool call with status, latency and error code, explanation settings and fallbacks, and whether the summary came from the LLM or the deterministic template. Any result in the PDF can be traced back to the exact computation that produced it.
+`GET /analyses/{id}/audit.json` (with the same `?download=true` option) returns a versioned record (`audit_version: 1`): analysis ID, user ID, timestamps, image hash and format, case context, model names and checkpoint hashes, preprocessing version and transform, every finding with its score, band and thresholds, stage statuses, errors and timings, which images are stored, the report trail (summary, source, model, time) and every audit event with status, latency and error code. Storage keys and links are never included. Any result in the PDF can be traced back to the exact computation that produced it.
 
 ---
 
@@ -647,7 +655,7 @@ pneumyst-ai/
 │   │   ├── db/               # SQLAlchemy engine, session, table models
 │   │   ├── repositories/     # database queries, always scoped to user_id
 │   │   ├── storage/          # image PNGs on local disk + signed links (R2 at deploy)
-│   │   ├── reporting/        # PDF report builder + JSON audit export (planned)
+│   │   ├── reporting/        # PDF report builder + JSON audit record
 │   │   ├── schemas/          # Pydantic response models
 │   │   ├── services/         # screening pipeline: upload checks, one GPU job at a time
 │   │   └── main.py           # app factory, models loaded once at startup
@@ -801,20 +809,20 @@ App: `http://localhost:3000`
 
 ## 🔌 API
 
-Every endpoint except `/health` requires a valid Clerk session token: `Authorization: Bearer <token>`. A missing or invalid token returns `401 UNAUTHENTICATED`; if Clerk's signing keys cannot be fetched the API returns `503 AUTH_UNAVAILABLE`. Each user only ever sees their own analyses; another user's analysis returns `404`. Errors always return `{"error_code", "detail", "analysis_id"}` and never internal details.
+Every endpoint except `/health` requires a valid Clerk session token: `Authorization: Bearer <token>`. A missing or invalid token returns `401 UNAUTHENTICATED`; if Clerk's signing keys cannot be fetched the API returns `503 AUTH_UNAVAILABLE`. Each user only ever sees their own analyses; another user's analysis returns `404`. Errors always return `{"error_code", "detail", "analysis_id"}` and never internal details; a rejected field or parameter returns `422 INVALID_REQUEST` naming the field.
 
 | Method | Endpoint | Description | Status |
 |---|---|---|:-:|
 | `GET` | `/health` | Service health, device and model load status | ✅ |
 | `GET` | `/models` | Models, checkpoint SHA-256, availability, per-finding thresholds and band status | ✅ |
-| `POST` | `/analyze` | Upload a PNG/JPEG X-ray (`?explain=false` skips heatmaps); returns 15 findings with scores, bands, statuses and timings; saves the result and its images and returns image links | ✅ |
+| `POST` | `/analyze` | Upload a PNG/JPEG X-ray with optional case context (`?explain=false` skips heatmaps); returns 15 findings with scores, bands, statuses and timings; saves the result and its images and returns image links | ✅ |
 | `GET` | `/analyses` | The signed-in user's analysis history (paged, flagged findings) | ✅ |
 | `GET` | `/analyses/{id}` | One past analysis with fresh 5-minute image links | ✅ |
 | `DELETE` | `/analyses/{id}` | Delete an analysis, its audit events and its stored images | ✅ |
 | `GET` | `/files/{key}?expires=&sig=` | Serve a stored image through a signed, expiring link (no token: `<img>` tags cannot send one, so the signature is the proof) | ✅ |
 | `GET` | `/analyses/{id}/report` | The written summary: text, source (`llm` / `template`), model, time and disclaimer; written on first request, then served from the database | ✅ |
-| `GET` | `/analyses/{id}/report.pdf` | Download the Screening Analysis Report | Planned |
-| `GET` | `/analyses/{id}/audit.json` | Download the audit record | Planned |
+| `GET` | `/analyses/{id}/report.pdf` | The Screening Analysis Report as a PDF; opens in the browser, `?download=true` saves it | ✅ |
+| `GET` | `/analyses/{id}/audit.json` | The versioned audit record; `?download=true` saves it | ✅ |
 | `POST` | `/analyses/{id}/ask` | Ask the assistant agent about one saved analysis | Planned |
 
 `/analyze` returns `413 FILE_TOO_LARGE`, `422 INVALID_IMAGE` (with a reason such as `unsupported_format` or `blank_image`), `503 MODEL_UNAVAILABLE` / `SERVER_BUSY`, or `500 INTERNAL_ERROR`. A partial result (for example a failed heatmap) is still `200`, with the failed stage named in `errors`.
@@ -907,7 +915,7 @@ gantt
 | MySQL schema and migrations | ✅ Verified in running app (Alembic `0001` on MySQL 8.0) |
 | Image storage (local) + signed links | ✅ Verified in running app (16 storage tests) |
 | Cloudflare R2 storage | ⬜ Not started (at deploy) |
-| Screening report (PDF) + audit record (JSON) | ⏳ Next (step 5b) |
+| Screening report (PDF) + audit record (JSON) + de-identified case context | ✅ Verified in running app (16 export tests) |
 | Next.js dashboard and history | ⬜ Not started |
 | Test suite (18 required cases + auth isolation + report checks) | ⬜ Not started |
 | Deployment | ⬜ Not started |
