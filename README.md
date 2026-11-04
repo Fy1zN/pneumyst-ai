@@ -412,6 +412,27 @@ flowchart LR
 
 **Never included:** name, patient ID, date of birth, exact address, phone number or any field filled in by AI.
 
+### How the summary is written (LangGraph)
+
+The summary is produced by a small LangGraph workflow in `backend/app/agent/`. The LLM only ever sees **finding names, bands and formatted scores**, never the image or anything personal.
+
+```mermaid
+flowchart LR
+    S([start]) -->|key set| D["draft<br/>LLM writes one paragraph"]
+    S -->|no key| T["template<br/>deterministic summary"]
+    D -->|LLM error or timeout| T
+    D --> C{"check<br/>rule-based guardrails"}
+    C -->|pass| L([saved · source llm])
+    C -->|fail, first draft| D
+    C -->|fail twice| T
+    T --> P([source template])
+```
+
+- **Guardrails** (plain Python, no LLM): every likely and possible finding is named; every number matches a real score or threshold; unlikely findings are only mentioned as unlikely; no diagnosis, certainty or treatment language; failed or unavailable parts are stated; length stays bounded. A rejected draft is sent back once with the exact problems.
+- **The disclaimer is added by code**, never written by the LLM.
+- **Fallback model:** if the main model is busy or slow, a second model is tried before the template. The report records the model the provider says actually answered.
+- **Stored once:** the first request writes and saves the summary (with source, model and time); later requests are served from MySQL. A template produced because the LLM failed is not saved, so the next request tries again. Each attempt is an audit event.
+
 ### Audit record (JSON)
 
 Analysis ID, user ID, timestamps, image hash, model names, versions and checkpoint hashes, preprocessing configuration, thresholds used, every tool call with status, latency and error code, explanation settings and fallbacks, and whether the summary came from the LLM or the deterministic template. Any result in the PDF can be traced back to the exact computation that produced it.
@@ -619,8 +640,8 @@ pneumyst-ai/
 │   └── types/                # TypeScript mirrors of backend schemas
 ├── backend/
 │   ├── app/
-│   │   ├── api/              # FastAPI routes: health, models, analyze (analyses, report, ask planned)
-│   │   ├── agent/            # LangGraph report workflow and assistant agent + allow-listed tools (planned)
+│   │   ├── api/              # FastAPI routes: health, models, analyze, analyses, report, files (ask planned)
+│   │   ├── agent/            # LangGraph report workflow + guardrails (assistant agent planned)
 │   │   ├── auth/             # Clerk JWT verification → current user
 │   │   ├── core/             # settings from .env, API errors
 │   │   ├── db/               # SQLAlchemy engine, session, table models
@@ -700,7 +721,7 @@ Fill in `.env`:
 
 - `DATA_ROOT`: a folder **outside** the repository.
 - `DATABASE_URL`: your MySQL connection string. Use a password of letters and digits, or URL-encode characters such as `@`, `:` and `/`.
-- `LLM_PROVIDER` (`openai` or `gemini`), `LLM_API_KEY`, `LLM_MODEL`: optional, for report summaries and the assistant *(planned)*.
+- `LLM_PROVIDER` (`gemini` or `openai`), `LLM_API_KEY`, `LLM_MODEL` (an exact model name): optional; without a key, summaries use the template. Optional `LLM_FALLBACK_MODEL`, `LLM_THINKING_LEVEL` (Gemini 3+, e.g. `low`) and `LLM_TIMEOUT_S`.
 - `CLERK_SECRET_KEY`, `CLERK_JWKS_URL`, `CLERK_ISSUER`: from your Clerk application. `CLERK_AUTHORIZED_PARTIES`: the frontend origins allowed to send tokens (default `http://localhost:3000`).
 - `AUTH_MODE`: `clerk` (default) verifies every request. `dev` skips verification and uses `DEV_USER_ID`, for local work only; never use it when deployed.
 - `FILE_SIGNING_KEY`: a random secret of at least 32 characters for image links, e.g. from `python -c "import secrets; print(secrets.token_urlsafe(48))"`. Required once storage is on; images go to `STORAGE_DIR`, or `DATA_ROOT/storage` when it is empty.
@@ -791,6 +812,7 @@ Every endpoint except `/health` requires a valid Clerk session token: `Authoriza
 | `GET` | `/analyses/{id}` | One past analysis with fresh 5-minute image links | ✅ |
 | `DELETE` | `/analyses/{id}` | Delete an analysis, its audit events and its stored images | ✅ |
 | `GET` | `/files/{key}?expires=&sig=` | Serve a stored image through a signed, expiring link (no token: `<img>` tags cannot send one, so the signature is the proof) | ✅ |
+| `GET` | `/analyses/{id}/report` | The written summary: text, source (`llm` / `template`), model, time and disclaimer; written on first request, then served from the database | ✅ |
 | `GET` | `/analyses/{id}/report.pdf` | Download the Screening Analysis Report | Planned |
 | `GET` | `/analyses/{id}/audit.json` | Download the audit record | Planned |
 | `POST` | `/analyses/{id}/ask` | Ask the assistant agent about one saved analysis | Planned |
@@ -878,13 +900,14 @@ gantt
 | Heatmap display rules | ✅ Tested (frozen) |
 | Inference utility (both models → scores, bands, heatmaps) | ✅ Tested (matches the evaluated pipeline on 250 raw images; 12 unit tests) |
 | Explanation cache and fallbacks | ⬜ Not started |
-| Assistant agent (LangGraph, tool calling, read-only tools, report summary) | ⏳ Next |
-| FastAPI endpoints | ⏳ In progress (health, models, analyze, history ✅ verified in running app; report and ask planned) |
+| LangGraph report workflow (draft, guardrails, retry, template and fallback model) | ✅ Verified in running app (Gemini; 26 report tests) |
+| Assistant agent (LangGraph, tool calling, read-only tools) | ⬜ Not started (step 6) |
+| FastAPI endpoints | ⏳ In progress (health, models, analyze, history, report summary ✅ verified in running app; PDF, audit JSON and ask planned) |
 | Clerk authentication | ✅ Tested (19 auth tests; live 401 checks; real sign-in comes with the frontend) |
 | MySQL schema and migrations | ✅ Verified in running app (Alembic `0001` on MySQL 8.0) |
 | Image storage (local) + signed links | ✅ Verified in running app (16 storage tests) |
 | Cloudflare R2 storage | ⬜ Not started (at deploy) |
-| Screening report (PDF) + audit record (JSON) | ⬜ Not started |
+| Screening report (PDF) + audit record (JSON) | ⏳ Next (step 5b) |
 | Next.js dashboard and history | ⬜ Not started |
 | Test suite (18 required cases + auth isolation + report checks) | ⬜ Not started |
 | Deployment | ⬜ Not started |
