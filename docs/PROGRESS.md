@@ -2,7 +2,7 @@
 
 Working notes for continuing the project in a new session. The [README](../README.md) is the public description and holds the full results; this file records **where things are, how we work, and why decisions were made**.
 
-_Last updated: 31 Oct 2026 · `main` at backend step 4. **The v1 ML work is complete; the backend is being built in steps.**_
+_Last updated: 4 Nov 2026 · `main` at backend step 5a. **The v1 ML work is complete; the backend is being built in steps.**_
 
 ---
 
@@ -23,7 +23,8 @@ _Last updated: 31 Oct 2026 · `main` at backend step 4. **The v1 ML work is comp
 | Backend step 2: MySQL + Alembic + history (9 tests) | ✅ done, run live on MySQL | `backend/app/db/`, `backend/app/repositories/`, `backend/app/api/analyses.py`, `backend/migrations/` |
 | Backend step 3: Clerk authentication (19 tests) | ✅ done, run live (401 checks) | `backend/app/auth/`, `backend/app/api/deps.py` |
 | Backend step 4: image storage + signed links (16 tests) | ✅ done, run live | `backend/app/storage/`, `backend/app/api/files.py` |
-| **Backend step 5: PDF report + audit JSON + LangGraph report workflow** | ⏳ **next** (needs an OpenAI or Gemini key) | — |
+| Backend step 5a: LangGraph report workflow + guardrails (26 tests) | ✅ done, run live with Gemini | `backend/app/agent/`, `GET /analyses/{id}/report`, migration `0002` |
+| **Backend step 5b: PDF report + audit JSON** | ⏳ **next** | — |
 | Step 6: LangGraph assistant `/ask` + hardening | ⬜ not started | — |
 | Next.js dashboard, deploy | ⬜ not started | — |
 
@@ -35,9 +36,10 @@ _Last updated: 31 Oct 2026 · `main` at backend step 4. **The v1 ML work is comp
 - **Checkpoints (git-ignored, back them up!):** `ml/checkpoints/<run>/best.pt` (selected epoch) and `last.pt` (resume).
   - `tb_densenet121_v1` (superseded), `tb_densenet121_v2` (**current TB**), `nih_densenet121_v1` (**current NIH**)
   - Each run folder also has `history.json`, `val_predictions.csv`, `test_predictions.csv` (and `dev_predictions.csv` for TB v2).
-- **Tests:** `python -m pytest ml/tests backend/tests -q` → 114 passed (56 ML + 58 backend). A `StarletteDeprecationWarning` about `httpx` is harmless.
+- **Tests:** `python -m pytest ml/tests backend/tests -q` → 140 passed (56 ML + 84 backend). A `StarletteDeprecationWarning` about `httpx` is harmless.
 - **MySQL 8.0.46** (Windows service `MySQL80`, port 3306, firewall port not opened) + Workbench. Database `pneumyst` (utf8mb4) and user `pneumyst@localhost` with rights on that database only. `.env` holds `DATABASE_URL` (password of letters and digits) and `DEV_USER_ID=local-dev`.
 - **Clerk:** development instance `endless-adder-4170`. `.env` holds `CLERK_SECRET_KEY`, `CLERK_ISSUER`, `CLERK_JWKS_URL`, `CLERK_AUTHORIZED_PARTIES`. `AUTH_MODE=dev` for daily local work (no token needed), `AUTH_MODE=clerk` to test auth; never `dev` when deployed. The publishable key goes in `frontend/.env.local` later.
+- **LLM:** Gemini key from AI Studio (personal account, free tier; never the company OpenAI key). `.env`: `LLM_PROVIDER=gemini`, `LLM_MODEL=gemini-3.5-flash`, `LLM_FALLBACK_MODEL=gemini-3.5-flash-lite`, `LLM_THINKING_LEVEL=low`, `LLM_TIMEOUT_S=30`. Packages: `langgraph`, `langchain-google-genai`, `langchain-openai`. The key was visible in a screenshot once and rotated.
 - **Image storage:** `.env` holds `FILE_SIGNING_KEY` (random, 64 characters); images go to `DATA_ROOT\storage\analyses\<id>\`. The server refuses to start with storage on and no key.
 - **Migrations:** `alembic -c backend/alembic.ini upgrade head` (reads `DATABASE_URL` from `.env`). Migration `0001` created `users`, `analyses`, `audit_events` on the local MySQL.
 - **Run the API:** `uvicorn backend.app.main:app` from the repo root, then `http://localhost:8000/docs`. Restart uvicorn after code changes (no auto-reload).
@@ -148,12 +150,19 @@ Notebook tip: after a restart, only the setup, gallery (`boxes = pd.read_csv(...
 - Image saving took about 0.7 s for 13 PNGs (`optimize=True`); `total` covers screening only. Possible hardening: drop `optimize` or add a full request time.
 - Failure rules: storage error → scores kept, `errors.images = STORAGE_FAILED`; database error → stored images removed again; no storage configured → `STORAGE_NOT_CONFIGURED`.
 
+### Step 5a results (run live)
+- `gemini-3.8-flash` first: one `504 DEADLINE_EXCEEDED` (default thinking, 20 s timeout) and one `503` "high demand"; both fell back to the template as designed. Led to: fallback model, `LLM_THINKING_LEVEL=low`, and not saving templates after a temporary LLM failure.
+- `gemini-3.5-flash`: `source: llm`, all likely and possible findings named with exact scores, "the model scored X as likely" wording. Second request served instantly from MySQL.
+- The provider reported `gemini-3.6-flash` as the serving model for a `gemini-3.5-flash` request; the report stores what the provider reports, not what was asked for.
+- **Latency finding:** one successful call took ~58 s although `LLM_TIMEOUT_S=30`; the Gemini timeout is a deadline hint, not a hard stop. **Hardening TODO:** a total deadline enforced by our code, and writing the report in the background right after `/analyze`.
+- Possible later: store rejected drafts and their issues for LLM evaluation (how often each rule fails).
+
 ### Plan
 1. ✅ API skeleton
 2. ✅ **MySQL + Alembic:** tables `users`, `analyses` (findings/stages/errors/timings/preprocess/models as JSON; `heatmap_keys`, `report`, `report_source` filled later), `audit_events`. `/analyze` saves (`persistence: saved/not_saved`, `STORAGE_FAILED` never loses results); `GET /analyses` (paged), `GET /analyses/{id}`, `DELETE /analyses/{id}`; other users' analyses return 404. Tests on in-memory SQLite.
 3. ✅ **Clerk JWT auth:** the token's user id scopes every query; `AUTH_MODE=dev` keeps `DEV_USER_ID` for local work.
 4. ✅ **Image storage:** 320 px image + shown overlays on local disk, HMAC-signed 5-minute links, delete cleanup. R2 comes at deploy.
-5. PDF report + audit JSON + LangGraph report workflow (draft, checks, template fallback).
-6. LangGraph assistant `ask` endpoint + hardening (startup warm-up, limits, full test list).
+5. ✅ (5a) LangGraph report workflow: draft, checks, one retry, template and fallback model, stored once. Next (5b): PDF report + audit JSON.
+6. LangGraph assistant `ask` endpoint + hardening (startup warm-up, total LLM deadline, background report writing, limits, full test list).
 
 The backend machine needs `ml/checkpoints/tb_densenet121_v2/best.pt` and `ml/checkpoints/nih_densenet121_v1/best.pt`. CPU deployment makes heatmaps slow (30–60 s); decide at deploy time (GPU host, background heatmaps, or coarser grid).
