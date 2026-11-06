@@ -459,6 +459,35 @@ flowchart LR
 - **Fallback model:** if the main model is busy or slow, a second model is tried before the template. The report records the model the provider says actually answered.
 - **Stored once:** the first request writes and saves the summary (with source, model and time); later requests are served from MySQL. A template produced because the LLM failed is not saved, so the next request tries again. Each attempt is an audit event.
 
+### Assistant agent (`POST /analyses/{id}/ask`)
+
+A LangGraph tool-calling agent answers questions about the signed-in user's saved analyses, for example "why is this finding flagged?", "compare with my previous X-ray" or "how reliable is the TB model at other hospitals?". The LLM chooses which tools to call; everything that keeps it safe is enforced by code.
+
+```mermaid
+flowchart LR
+    Q([question]) --> A["agent<br/>LLM with tools"]
+    A -->|tool calls| T["tools<br/>read-only, user-scoped"]
+    T --> A
+    A -->|answer| C{"checks"}
+    C -->|pass| R([answer])
+    C -->|fail| F([safe refusal])
+```
+
+| Tool | Returns |
+|---|---|
+| `get_analysis` | findings with band, score, thresholds and heatmap status, plus processing problems |
+| `list_history` | the user's recent analyses and their flagged findings |
+| `compare_analyses` | findings whose band changed between two of the user's analyses |
+| `get_finding_info` | what a finding means and its measured test AUROC, from this project's own evaluation |
+| `get_model_card` | training data, test results, how bands and heatmaps work, known limits |
+
+- **User scoping in code:** tools are built per question with the user ID from the verified session, so another user's analysis reads as "no such analysis".
+- **Read-only:** no tool can change or delete anything.
+- **Step limit:** at most 6 model turns (`recursion_limit`); an endless tool loop ends in a refusal.
+- **Guardrails on every answer:** no diagnosis, certainty or treatment language; every number must appear in a tool result; at most 200 words. A failed check returns a fixed refusal pointing to a clinician. The checks are deliberately strict, so a polite "I can't diagnose" is also replaced by the refusal: false refusals are preferred over false advice.
+- **Privacy:** case context and symptoms never appear in tool results. Questions and answers are not stored; the audit records only which tools ran and how the request ended. The question itself is sent to the LLM, so the interface asks users not to type personal details.
+- **Failure:** if the LLM is unavailable the endpoint returns `503 ASSISTANT_UNAVAILABLE`; there is no template answer.
+
 ### Audit record (JSON)
 
 `GET /analyses/{id}/audit.json` (with the same `?download=true` option) returns a versioned record (`audit_version: 2`): analysis ID, user ID, timestamps, image hash and format, case context and the case notes with their rules version, model names and checkpoint hashes, preprocessing version and transform, every finding with its score, band and thresholds, stage statuses in pipeline order, errors and timings, which images are stored, the report trail (summary, source, model, time) and every audit event with status, latency and error code. Storage keys and links are never included. Any result in the PDF can be traced back to the exact computation that produced it.
@@ -666,8 +695,8 @@ pneumyst-ai/
 │   └── types/                # TypeScript mirrors of backend schemas
 ├── backend/
 │   ├── app/
-│   │   ├── api/              # FastAPI routes: health, models, analyze, analyses, report, files (ask planned)
-│   │   ├── agent/            # LangGraph report workflow + guardrails (assistant agent planned)
+│   │   ├── api/              # FastAPI routes: health, models, analyze, analyses, report, ask, files
+│   │   ├── agent/            # LangGraph report workflow, assistant agent, tools, guardrails
 │   │   ├── auth/             # Clerk JWT verification → current user
 │   │   ├── core/             # settings from .env, API errors
 │   │   ├── db/               # SQLAlchemy engine, session, table models
@@ -841,7 +870,7 @@ Every endpoint except `/health` requires a valid Clerk session token: `Authoriza
 | `GET` | `/analyses/{id}/report` | The written summary: text, source (`llm` / `template`), model, time and disclaimer; written on first request, then served from the database | ✅ |
 | `GET` | `/analyses/{id}/report.pdf` | The Screening Analysis Report as a PDF; opens in the browser, `?download=true` saves it | ✅ |
 | `GET` | `/analyses/{id}/audit.json` | The versioned audit record; `?download=true` saves it | ✅ |
-| `POST` | `/analyses/{id}/ask` | Ask the assistant agent about one saved analysis | Planned |
+| `POST` | `/analyses/{id}/ask` | Ask the assistant agent about the user's saved analyses: answer, tools used, model, refused flag and disclaimer | ✅ |
 
 `/analyze` returns `413 FILE_TOO_LARGE`, `422 INVALID_IMAGE` (with a reason such as `unsupported_format` or `blank_image`), `503 MODEL_UNAVAILABLE` / `SERVER_BUSY`, or `500 INTERNAL_ERROR`. A partial result (for example a failed heatmap) is still `200`, with the failed stage named in `errors`.
 
@@ -927,8 +956,8 @@ gantt
 | Inference utility (both models → scores, bands, heatmaps) | ✅ Tested (matches the evaluated pipeline on 250 raw images; 12 unit tests) |
 | Explanation cache and fallbacks | ⬜ Not started |
 | LangGraph report workflow (draft, guardrails, retry, template and fallback model) | ✅ Verified in running app (Gemini; 26 report tests) |
-| Assistant agent (LangGraph, tool calling, read-only tools) | ⬜ Not started (step 6) |
-| FastAPI endpoints | ⏳ In progress (health, models, analyze, history, report summary ✅ verified in running app; PDF, audit JSON and ask planned) |
+| Assistant agent (LangGraph, tool calling, read-only tools) | ✅ Verified in running app (Gemini; 8 assistant tests) |
+| FastAPI endpoints | ✅ Verified in running app (health, models, analyze, history, report, PDF, audit JSON, ask, files); hardening next |
 | Clerk authentication | ✅ Tested (19 auth tests; live 401 checks; real sign-in comes with the frontend) |
 | MySQL schema and migrations | ✅ Verified in running app (Alembic `0001` on MySQL 8.0) |
 | Image storage (local) + signed links | ✅ Verified in running app (16 storage tests) |

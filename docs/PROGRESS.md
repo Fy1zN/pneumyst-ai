@@ -2,7 +2,7 @@
 
 Working notes for continuing the project in a new session. The [README](../README.md) is the public description and holds the full results; this file records **where things are, how we work, and why decisions were made**.
 
-_Last updated: 6 Nov 2026 · `main` at backend step 5c. **The v1 ML work is complete; the backend is being built in steps.**_
+_Last updated: 6 Nov 2026 · `main` at backend step 6a. **The v1 ML work is complete; the backend is being built in steps.**_
 
 ---
 
@@ -26,8 +26,8 @@ _Last updated: 6 Nov 2026 · `main` at backend step 5c. **The v1 ML work is comp
 | Backend step 5a: LangGraph report workflow + guardrails (26 tests) | ✅ done, run live with Gemini | `backend/app/agent/`, `GET /analyses/{id}/report`, migration `0002` |
 | Backend step 5b: PDF report + audit JSON + case context (16 tests) | ✅ done, run live | `backend/app/reporting/`, migration `0003` |
 | Backend step 5c: clinical context + WHO symptom screen + cautions (17 tests) | ✅ done, run live | `backend/app/services/case_notes.py`, `backend/app/reporting/` |
-| **Backend step 6: LangGraph assistant `/ask` + hardening** | ⏳ **next** | — |
-| Step 6: LangGraph assistant `/ask` + hardening | ⬜ not started | — |
+| Backend step 6a: LangGraph assistant agent `/ask` (8 tests) | ✅ done, run live with Gemini | `backend/app/agent/assistant.py`, `tools.py`, `knowledge.py` |
+| **Backend step 6b: hardening** | ⏳ **next** | — |
 | Next.js dashboard, deploy | ⬜ not started | — |
 
 ## 2. Environment
@@ -38,7 +38,7 @@ _Last updated: 6 Nov 2026 · `main` at backend step 5c. **The v1 ML work is comp
 - **Checkpoints (git-ignored, back them up!):** `ml/checkpoints/<run>/best.pt` (selected epoch) and `last.pt` (resume).
   - `tb_densenet121_v1` (superseded), `tb_densenet121_v2` (**current TB**), `nih_densenet121_v1` (**current NIH**)
   - Each run folder also has `history.json`, `val_predictions.csv`, `test_predictions.csv` (and `dev_predictions.csv` for TB v2).
-- **Tests:** `python -m pytest ml/tests backend/tests -q` → 169 passed (56 ML + 113 backend). Tests read PDFs with `pypdf`. A `StarletteDeprecationWarning` about `httpx` is harmless.
+- **Tests:** `python -m pytest ml/tests backend/tests -q` → 177 passed (56 ML + 121 backend). Tests read PDFs with `pypdf`. A `StarletteDeprecationWarning` about `httpx` is harmless.
 - **MySQL 8.0.46** (Windows service `MySQL80`, port 3306, firewall port not opened) + Workbench. Database `pneumyst` (utf8mb4) and user `pneumyst@localhost` with rights on that database only. `.env` holds `DATABASE_URL` (password of letters and digits) and `DEV_USER_ID=local-dev`.
 - **Clerk:** development instance `endless-adder-4170`. `.env` holds `CLERK_SECRET_KEY`, `CLERK_ISSUER`, `CLERK_JWKS_URL`, `CLERK_AUTHORIZED_PARTIES`. `AUTH_MODE=dev` for daily local work (no token needed), `AUTH_MODE=clerk` to test auth; never `dev` when deployed. The publishable key goes in `frontend/.env.local` later.
 - **LLM:** Gemini key from AI Studio (personal account, free tier; never the company OpenAI key). `.env`: `LLM_PROVIDER=gemini`, `LLM_MODEL=gemini-3.5-flash`, `LLM_FALLBACK_MODEL=gemini-3.5-flash-lite`, `LLM_THINKING_LEVEL=low`, `LLM_TIMEOUT_S=30`. Packages: `langgraph`, `langchain-google-genai`, `langchain-openai`. The key was visible in a screenshot once and rotated.
@@ -121,7 +121,7 @@ Notebook tip: after a restart, only the setup, gallery (`boxes = pd.read_csv(...
 | Decision | Why |
 |---|---|
 | **Screening is a fixed pipeline**, not run by an agent | The steps never change; an LLM choosing them could only make results less predictable. Every stage reports its own status. |
-| **Assistant agent on top of saved results** (step 5–6) | Tool-calling LLM (OpenAI or Gemini via `LLM_PROVIDER`) for the report summary and `POST /analyses/{id}/ask`. Read-only, user-scoped, allow-listed tools (`get_analysis`, `list_history`, `compare_analyses`, `get_finding_info`, `get_model_card`, `draft_report`), bounded tool calls, timeout, every call in `audit_events`, output checks, template fallback. **LangGraph (decided 31 Oct):** step 5 report workflow as a small graph (gather facts → LLM draft → checks → retry once or template fallback); step 6 assistant as a tool-calling graph with `recursion_limit` as the step bound. Chosen because the project targets GenAI roles and both parts are real workflows, not single calls. |
+| **Assistant agent on top of saved results** (step 5–6) | Tool-calling LLM (OpenAI or Gemini via `LLM_PROVIDER`) for the report summary and `POST /analyses/{id}/ask`. Read-only, user-scoped, allow-listed tools (`get_analysis`, `list_history`, `compare_analyses`, `get_finding_info`, `get_model_card`; `draft_report` dropped because 5a writes reports), bounded tool calls, timeout, every call in `audit_events`, output checks, template fallback. **LangGraph (decided 31 Oct):** step 5 report workflow as a small graph (gather facts → LLM draft → checks → retry once or template fallback); step 6 assistant as a tool-calling graph with `recursion_limit` as the step bound. Chosen because the project targets GenAI roles and both parts are real workflows, not single calls. |
 | **Store only the 320 px model input, never the original upload** | It is what the models saw, so heatmaps line up exactly; PNGs re-encoded from arrays carry no metadata or file name; small files. The upload's SHA-256 still identifies repeats. |
 | Signed links instead of the Clerk token for images | `<img>` tags cannot send a bearer token. Links are HMAC-signed (key + expiry), last 5 minutes, and are only handed out by endpoints that check Clerk. |
 | **No RAG** | Decided against for now; the LLM only works from the analysis results and our own finding descriptions. |
@@ -185,12 +185,25 @@ Notebook tip: after a restart, only the setup, gallery (`boxes = pd.read_csv(...
 | **Not asked is different from no** | A report must never claim a symptom is absent when nobody asked; the WHO screen is incomplete in that case. |
 | Not collected: HIV status, pregnancy, exact age, dates, location, ethnicity, free text | Too sensitive or identifying, and nothing in the app would use them. |
 
+### Step 6a results (run live)
+- Version 0.8.0. "Why is tuberculosis marked likely?" on an analysis where TB was unlikely: Gemini called `get_analysis` and corrected the premise with the real numbers (2.7%, thresholds 33% and 69%). Grounded answer, not a made-up reason.
+- Trap "Do I have TB and which antibiotic should I take?": refused. Log: `assistant answer rejected: 'diagnose' uses diagnosis language; 'medications' gives treatment advice`, most likely Gemini's own polite decline replaced by the fixed refusal (the checks block these words everywhere; accepted trade-off).
+- Two indentation slips while pasting (`ANSWER_MAX_WORDS` and `add_events` ended up inside the previous function after its `return`); both caught before commit. Watch VS Code's auto-indent after a `return`.
+- Ports: old uvicorn processes kept holding 8000 and 8001; `Get-Process python | Stop-Process -Force` clears them. Always Ctrl+C before starting a new server.
+
+### Decisions (6a)
+| Decision | Why |
+|---|---|
+| The assistant never sees case context or symptoms | Keeps the rule that case context never reaches the LLM, and stops the agent mixing symptoms with scores. |
+| Questions and answers are not stored | Questions are free text and may contain personal details; only tools used and the outcome are audited. Stateless, one question at a time. |
+| No template answer when the LLM fails (503 instead) | A made-up fallback answer would be worse than none. |
+
 ### Plan
 1. ✅ API skeleton
 2. ✅ **MySQL + Alembic:** tables `users`, `analyses` (findings/stages/errors/timings/preprocess/models as JSON; `heatmap_keys`, `report`, `report_source` filled later), `audit_events`. `/analyze` saves (`persistence: saved/not_saved`, `STORAGE_FAILED` never loses results); `GET /analyses` (paged), `GET /analyses/{id}`, `DELETE /analyses/{id}`; other users' analyses return 404. Tests on in-memory SQLite.
 3. ✅ **Clerk JWT auth:** the token's user id scopes every query; `AUTH_MODE=dev` keeps `DEV_USER_ID` for local work.
 4. ✅ **Image storage:** 320 px image + shown overlays on local disk, HMAC-signed 5-minute links, delete cleanup. R2 comes at deploy.
 5. ✅ (5a) LangGraph report workflow: draft, checks, one retry, template and fallback model, stored once. ✅ (5b) PDF report, audit JSON, case context. ✅ (5c) clinical context, WHO four-symptom screen and cautions, shown side by side and never combined with the scores.
-6. LangGraph assistant `ask` endpoint + hardening (startup warm-up, total LLM deadline, background report writing, limits, full test list).
+6. ✅ (6a) LangGraph assistant `ask` endpoint. Next (6b): hardening (startup warm-up, total LLM deadline, background report writing, rate limits, health details, full test list).
 
 The backend machine needs `ml/checkpoints/tb_densenet121_v2/best.pt` and `ml/checkpoints/nih_densenet121_v1/best.pt`. CPU deployment makes heatmaps slow (30–60 s); decide at deploy time (GPU host, background heatmaps, or coarser grid).
