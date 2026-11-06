@@ -18,6 +18,8 @@ from reportlab.platypus import Image, KeepTogether, Paragraph, SimpleDocTemplate
 
 from backend.app.agent.facts import pct
 from backend.app.db.models import AnalysisRecord
+from backend.app.reporting.audit import ordered_stages
+from backend.app.services.case_notes import OTHER_SYMPTOMS, case_notes
 
 MAX_HEATMAPS = 3
 BAND_ORDER = {"likely": 0, "possible": 1, "unlikely": 2}
@@ -87,6 +89,72 @@ def image_cell(data: bytes, caption: str, s: dict, size: float) -> list:
     return [Image(io.BytesIO(data), width=size, height=size), Spacer(1, 2), Paragraph(caption, s["caption"])]
 
 
+def tb_result(row: AnalysisRecord) -> str:
+    tb = next((f for f in row.findings if f["finding"] == "Tuberculosis"), None)
+    if tb is None or tb["score"] is None:
+        return "UNAVAILABLE"
+    return f"{band_word(tb)} ({pct(tb['score'])})"
+
+
+def who_text(screen: dict | None) -> str:
+    if screen is None:
+        return "Not recorded"
+    if screen["result"] == "positive":
+        return "POSITIVE: " + ", ".join(screen["positive_symptoms"])
+    if screen["result"] == "negative":
+        return "NEGATIVE: all four answered no"
+    return "INCOMPLETE: none reported; not asked: " + ", ".join(screen["not_asked"])
+
+
+def other_symptoms_text(case: dict) -> str:
+    groups = {"present": [], "absent": [], "not asked": []}
+    for field, label in OTHER_SYMPTOMS.items():
+        value = case.get(field)
+        groups["present" if value == "yes" else "absent" if value == "no" else "not asked"].append(label)
+    return "; ".join(f"{name}: {', '.join(items)}" for name, items in groups.items() if items)
+
+
+def context_section(row: AnalysisRecord, s: dict, width: float) -> list:
+    """Case details, cautions and the symptom screen, all side by side with the results and never combined."""
+    case = row.case_context or {}
+    notes = case_notes(case) or {"who_screen": None, "cautions": []}
+    half = width / 2
+
+    def value(field: str) -> Paragraph:
+        return Paragraph(case.get(field, "-"), s["cell"])
+
+
+    rows = [["Case number", value("case_number"), "Age band", value("age_band")],
+            ["Sex", value("sex"), "Reason for X-ray", value("reason")],
+            ["View", value("view"), "Position", value("position")],
+            ["Image source", value("image_source"), "Smoking", value("smoking")],
+            ["Close TB contact", value("tb_contact"), "Treated for TB before", value("previous_tb")],
+            ["Diabetes", value("diabetes"), "", ""],
+            ["Patient name / ID (write by hand)", "", "", ""]]
+    details = grid(rows, [36 * mm, half - 36 * mm, 36 * mm, half - 36 * mm])
+    details.setStyle(TableStyle([("SPAN", (0, 6), (1, 6)), ("SPAN", (2, 6), (3, 6))]))
+    section = [Paragraph("Case and clinical context", s["h2"]), details,
+               Paragraph("Provided by the user, not used by the models or the summary. The patient's identity is "
+                         "never stored by PNEUMYST AI.", s["small"])]
+
+    if notes["cautions"]:
+        box = Table([[Paragraph(f"<b>Caution:</b> {c['text']}", s["cell"])] for c in notes["cautions"]],
+                    colWidths=[width], hAlign="LEFT")
+        box.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fff4d6")),
+                                 ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#9a5b00")),
+                                 ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2)]))
+        section += [Spacer(1, 4), box]
+
+    screen = [["WHO four-symptom screen", Paragraph(who_text(notes["who_screen"]), s["cell"])],
+              ["TB model (X-ray only)", tb_result(row)],
+              ["Cough duration", value("cough_duration")],
+              ["Other symptoms", Paragraph(other_symptoms_text(case), s["cell"])]]
+    section += [Paragraph("Symptom screen", s["h2"]), grid(screen, [50 * mm, width - 50 * mm]),
+                Paragraph("Shown side by side for the clinician. The AI does not combine symptoms with the X-ray "
+                          "scores.", s["small"])]
+    return section
+
+
 def footer(canvas, doc) -> None:
     canvas.saveState()
     canvas.setFont("Helvetica", 7)
@@ -116,21 +184,14 @@ def build_pdf(row: AnalysisRecord, report: dict, images: dict[str, bytes] | None
                ["App version", app_version]]
     story.append(grid(details, [50 * mm, width - 50 * mm]))
 
-    story.append(Paragraph("Case context", s["h2"]))
-    case = row.case_context or {}
-    case_rows = [["Case number", case.get("case_number", "-")], ["Age band", case.get("age_band", "-")],
-                 ["Sex", case.get("sex", "-")], ["Reason for X-ray", case.get("reason", "-")],
-                 ["Patient name / ID (write by hand)", ""]]
-    story += [grid(case_rows, [50 * mm, width - 50 * mm]),
-              Paragraph("Provided by the user, not used by the models or the summary. The patient's identity is "
-                        "never stored by PNEUMYST AI.", s["small"])]
+    story += context_section(row, s, width)
 
     story.append(Paragraph("Summary", s["h2"]))
     source = (f"Written by {report['model']} and checked by rule-based guardrails." if report["source"] == "llm"
               else "Template summary written by fixed rules.")
     story += [Paragraph(escape(report["summary"]), s["body"]), Spacer(1, 2), Paragraph(escape(source), s["small"])]
 
-    story.append(Paragraph("Images", s["h2"]))
+    heading = Paragraph("Images", s["h2"])
     if images and "image" in images:
         size = (width - 9 * mm) / (MAX_HEATMAPS + 1)
         cells = [image_cell(images["image"], "X-ray as analysed (320 px)", s, size)]
@@ -138,11 +199,11 @@ def build_pdf(row: AnalysisRecord, report: dict, images: dict[str, bytes] | None
                   for f in chosen_heatmaps(row, images)]
         row_table = Table([cells], colWidths=[size + 2 * mm] * len(cells), hAlign="LEFT")
         row_table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
-        story += [row_table, Spacer(1, 3),
+        story += [KeepTogether([heading, row_table]), Spacer(1, 3),
                   Paragraph("Red marks the regions that raised a score the most when they were hidden. A heatmap "
                             "shows what influenced the model, not the outline of a lesion.", s["small"])]
     else:
-        story.append(Paragraph("Images not stored for this analysis.", s["body"]))
+        story += [heading, Paragraph("Images not stored for this analysis.", s["body"])]
 
     rows = [["Finding", "Area", "Band", "Score", "Possible from", "Likely from", "Heatmap"]]
     for f in ordered(row.findings):
@@ -161,7 +222,7 @@ def build_pdf(row: AnalysisRecord, report: dict, images: dict[str, bytes] | None
 
     model_rows = [["Model", "Checkpoint (SHA-256)"]]
     model_rows += [[m["name"], (m["checkpoint_sha256"] or "unavailable")[:16]] for m in row.models]
-    stages = ", ".join(f"{name}: {status}" for name, status in row.stages.items())
+    stages = ", ".join(f"{name}: {status}" for name, status in ordered_stages(row.stages).items())
     errors = ", ".join(f"{name}: {code}" for name, code in row.errors.items()) or "none"
     story += [KeepTogether([Paragraph("Models and processing", s["h2"]),
                             grid(model_rows, [60 * mm, width - 60 * mm], header=True)]),

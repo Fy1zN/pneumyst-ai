@@ -21,6 +21,11 @@ def upload(client, case: dict | None = None):
     return client.post("/analyze", files={"file": ("x.png", spot_xray(), "image/png")}, data=case or {})
 
 
+def given(case: dict | None) -> dict | None:
+    """The fields that were entered; responses list every field, with null for "not asked"."""
+    return None if case is None else {k: v for k, v in case.items() if v is not None}
+
+
 def pdf_text(content: bytes) -> str:
     return "\n".join(page.extract_text() for page in PdfReader(io.BytesIO(content)).pages)
 
@@ -36,7 +41,7 @@ def test_case_context_is_saved_and_returned():
         saved = c.get(f"/analyses/{body['id']}").json()
         history = c.get("/analyses").json()
         plain = upload(c).json()
-    assert body["case_context"] == CASE and saved["case_context"] == CASE
+    assert given(body["case_context"]) == CASE and given(saved["case_context"]) == CASE
     assert history["items"][0]["case_number"] == "CASE-0042" and plain["case_context"] is None
 
 
@@ -106,7 +111,7 @@ def test_audit_record_is_complete_and_hides_storage(storage):
         r = c.get(f"/analyses/{analysis_id}/audit.json", params={"download": "true"})
     audit = r.json()
     assert r.headers["content-disposition"] == 'attachment; filename="pneumyst-CASE-0042-audit.json"'
-    assert audit["audit_version"] == 1 and audit["app_version"] == "0.6.0"
+    assert audit["audit_version"] == 2 and audit["app_version"] == "0.7.0"
     assert audit["analysis"]["id"] == analysis_id and audit["case_context"] == CASE
     assert len(audit["findings"]) == 15 and audit["models"][0]["checkpoint_sha256"]
     assert audit["stored_images"] == {"image": True, "heatmaps": ["Tuberculosis"]}

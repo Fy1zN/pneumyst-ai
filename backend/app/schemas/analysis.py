@@ -11,6 +11,13 @@ AgeBand = Literal["0-17", "18-29", "30-39", "40-49", "50-59", "60-69", "70-79", 
 Sex = Literal["female", "male", "other"]
 Reason = Literal["cough or fever", "TB screening", "breathlessness", "chest pain", "follow-up", "pre-operative",
                  "routine check", "other"]
+View = Literal["PA", "AP", "lateral"]
+Position = Literal["standing", "sitting", "lying"]
+ImageSource = Literal["digital X-ray", "scanned film", "phone photo of film"]
+YesNo = Literal["yes", "no"]
+YesNoUnknown = Literal["yes", "no", "unknown"]
+CoughDuration = Literal["under 2 weeks", "2 weeks or more"]
+Smoking = Literal["never", "former", "current"]
 # Letters, digits, '-' and '_' only, so a full name with spaces cannot be typed in by accident.
 CASE_NUMBER_PATTERN = r"^[A-Za-z0-9_-]{1,32}$"
 
@@ -37,12 +44,48 @@ class Finding(BaseModel):
 
 
 class CaseContext(BaseModel):
-    """De-identified details entered by the user. Shown on the report, never used by the models or the LLM."""
+    """De-identified details entered by the user, all optional; a missing answer means "not asked", not "no".
+
+    Shown next to the results and on the report. Never used by the models or sent to the LLM.
+    """
 
     case_number: str | None = Field(None, pattern=CASE_NUMBER_PATTERN)
     age_band: AgeBand | None = None
     sex: Sex | None = None
     reason: Reason | None = None
+    view: View | None = None
+    position: Position | None = None
+    image_source: ImageSource | None = None
+    cough: YesNo | None = None
+    cough_duration: CoughDuration | None = None
+    fever: YesNo | None = None
+    night_sweats: YesNo | None = None
+    weight_loss: YesNo | None = None
+    breathlessness: YesNo | None = None
+    chest_pain: YesNo | None = None
+    coughing_blood: YesNo | None = None
+    tb_contact: YesNoUnknown | None = None
+    previous_tb: YesNoUnknown | None = None
+    diabetes: YesNoUnknown | None = None
+    smoking: Smoking | None = None
+
+
+class WhoScreen(BaseModel):
+    result: Literal["positive", "negative", "incomplete"]
+    positive_symptoms: list[str]
+    not_asked: list[str]
+
+
+class Caution(BaseModel):
+    code: str
+    text: str
+
+
+class CaseNotes(BaseModel):
+    """Fixed rules applied to the case context. They sit next to the scores and never change them."""
+
+    who_screen: WhoScreen | None
+    cautions: list[Caution]
 
 
 class ModelRef(BaseModel):
@@ -70,6 +113,7 @@ class AnalysisResponse(BaseModel):
     persistence: Literal["saved", "not_saved"]
     images: ImageLinks | None = None
     case_context: CaseContext | None = None
+    case_notes: CaseNotes | None = None
 
 
 class ReportResponse(BaseModel):

@@ -25,6 +25,7 @@ from backend.app.schemas.analysis import (
     FlaggedFinding,
     ReportResponse,
 )
+from backend.app.services.case_notes import case_notes
 from backend.app.storage.files import LocalStorage
 from backend.app.storage.images import image_links, remove_images
 
@@ -79,7 +80,8 @@ async def get_analysis(analysis_id: str, request: Request, store: AnalysisStore 
         status=row.status, stages=row.stages, errors=row.errors, findings=row.findings, models=row.models,
         preprocess=row.preprocess, timings_ms=row.timings_ms, persistence="saved",
         images=image_links(storage, row.heatmap_keys, str(request.base_url)),
-        case_context=CaseContext(**row.case_context) if row.case_context else None)
+        case_context=CaseContext(**row.case_context) if row.case_context else None,
+        case_notes=case_notes(row.case_context))
 
 
 async def load_report(analysis_id: str, store: AnalysisStore | None, writer: ReportWriter,
