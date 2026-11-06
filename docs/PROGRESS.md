@@ -2,7 +2,7 @@
 
 Working notes for continuing the project in a new session. The [README](../README.md) is the public description and holds the full results; this file records **where things are, how we work, and why decisions were made**.
 
-_Last updated: 5 Nov 2026 · `main` at backend step 5b. **The v1 ML work is complete; the backend is being built in steps.**_
+_Last updated: 6 Nov 2026 · `main` at backend step 5c. **The v1 ML work is complete; the backend is being built in steps.**_
 
 ---
 
@@ -25,7 +25,8 @@ _Last updated: 5 Nov 2026 · `main` at backend step 5b. **The v1 ML work is comp
 | Backend step 4: image storage + signed links (16 tests) | ✅ done, run live | `backend/app/storage/`, `backend/app/api/files.py` |
 | Backend step 5a: LangGraph report workflow + guardrails (26 tests) | ✅ done, run live with Gemini | `backend/app/agent/`, `GET /analyses/{id}/report`, migration `0002` |
 | Backend step 5b: PDF report + audit JSON + case context (16 tests) | ✅ done, run live | `backend/app/reporting/`, migration `0003` |
-| **Backend step 5c: symptom checklist + WHO screen + child caution** | ⏳ **next** | — |
+| Backend step 5c: clinical context + WHO symptom screen + cautions (17 tests) | ✅ done, run live | `backend/app/services/case_notes.py`, `backend/app/reporting/` |
+| **Backend step 6: LangGraph assistant `/ask` + hardening** | ⏳ **next** | — |
 | Step 6: LangGraph assistant `/ask` + hardening | ⬜ not started | — |
 | Next.js dashboard, deploy | ⬜ not started | — |
 
@@ -37,7 +38,7 @@ _Last updated: 5 Nov 2026 · `main` at backend step 5b. **The v1 ML work is comp
 - **Checkpoints (git-ignored, back them up!):** `ml/checkpoints/<run>/best.pt` (selected epoch) and `last.pt` (resume).
   - `tb_densenet121_v1` (superseded), `tb_densenet121_v2` (**current TB**), `nih_densenet121_v1` (**current NIH**)
   - Each run folder also has `history.json`, `val_predictions.csv`, `test_predictions.csv` (and `dev_predictions.csv` for TB v2).
-- **Tests:** `python -m pytest ml/tests backend/tests -q` → 152 passed (56 ML + 96 backend). Tests read PDFs with `pypdf`. A `StarletteDeprecationWarning` about `httpx` is harmless.
+- **Tests:** `python -m pytest ml/tests backend/tests -q` → 169 passed (56 ML + 113 backend). Tests read PDFs with `pypdf`. A `StarletteDeprecationWarning` about `httpx` is harmless.
 - **MySQL 8.0.46** (Windows service `MySQL80`, port 3306, firewall port not opened) + Workbench. Database `pneumyst` (utf8mb4) and user `pneumyst@localhost` with rights on that database only. `.env` holds `DATABASE_URL` (password of letters and digits) and `DEV_USER_ID=local-dev`.
 - **Clerk:** development instance `endless-adder-4170`. `.env` holds `CLERK_SECRET_KEY`, `CLERK_ISSUER`, `CLERK_JWKS_URL`, `CLERK_AUTHORIZED_PARTIES`. `AUTH_MODE=dev` for daily local work (no token needed), `AUTH_MODE=clerk` to test auth; never `dev` when deployed. The publishable key goes in `frontend/.env.local` later.
 - **LLM:** Gemini key from AI Studio (personal account, free tier; never the company OpenAI key). `.env`: `LLM_PROVIDER=gemini`, `LLM_MODEL=gemini-3.5-flash`, `LLM_FALLBACK_MODEL=gemini-3.5-flash-lite`, `LLM_THINKING_LEVEL=low`, `LLM_TIMEOUT_S=30`. Packages: `langgraph`, `langchain-google-genai`, `langchain-openai`. The key was visible in a screenshot once and rotated.
@@ -171,12 +172,25 @@ Notebook tip: after a restart, only the setup, gallery (`boxes = pd.read_csv(...
 | **Symptoms and case context are shown side by side, never combined with scores** | The models are image-only and no dataset has symptoms, so any combined score would be untested. The clinician connects them. |
 | PDFs and audit records are rebuilt on every request | Nothing to store, delete or go stale; the database and stored images are the single source. |
 
+### Step 5c results (run live)
+- Version 0.7.0 on port 8001 (an old 0.6.0 server still held 8000; check the version at the top of `/docs`).
+- PDF: clinical context table, one caution (treated for TB before) and correctly none for PA, standing, digital, 18-29; WHO screen POSITIVE (all four) next to TB LIKELY (77%); summary still about the X-ray only; stages in pipeline order; two pages.
+- Bug found and fixed before commit: a 30-character case number ran into the next column; table values now wrap.
+- 5b audit record checked live: case context, all findings with thresholds, report trail (`gemini-3.6-flash`, 6.1 s with `LLM_THINKING_LEVEL=low`, down from 58 s), no storage keys or links.
+
+### Decisions (5c)
+| Decision | Why |
+|---|---|
+| **Image context drives cautions from our own findings** (lateral, AP, lying, phone photo, child, previous TB) | The models' known blind spots (frontal-only training, the AP/PA shortcut from EDA, adult data) should be visible to the clinician when they apply. |
+| **Not asked is different from no** | A report must never claim a symptom is absent when nobody asked; the WHO screen is incomplete in that case. |
+| Not collected: HIV status, pregnancy, exact age, dates, location, ethnicity, free text | Too sensitive or identifying, and nothing in the app would use them. |
+
 ### Plan
 1. ✅ API skeleton
 2. ✅ **MySQL + Alembic:** tables `users`, `analyses` (findings/stages/errors/timings/preprocess/models as JSON; `heatmap_keys`, `report`, `report_source` filled later), `audit_events`. `/analyze` saves (`persistence: saved/not_saved`, `STORAGE_FAILED` never loses results); `GET /analyses` (paged), `GET /analyses/{id}`, `DELETE /analyses/{id}`; other users' analyses return 404. Tests on in-memory SQLite.
 3. ✅ **Clerk JWT auth:** the token's user id scopes every query; `AUTH_MODE=dev` keeps `DEV_USER_ID` for local work.
 4. ✅ **Image storage:** 320 px image + shown overlays on local disk, HMAC-signed 5-minute links, delete cleanup. R2 comes at deploy.
-5. ✅ (5a) LangGraph report workflow: draft, checks, one retry, template and fallback model, stored once. ✅ (5b) PDF report, audit JSON, case context. Next (5c): symptom checklist with the WHO four-symptom screen and a child caution, shown side by side and never combined with the scores.
+5. ✅ (5a) LangGraph report workflow: draft, checks, one retry, template and fallback model, stored once. ✅ (5b) PDF report, audit JSON, case context. ✅ (5c) clinical context, WHO four-symptom screen and cautions, shown side by side and never combined with the scores.
 6. LangGraph assistant `ask` endpoint + hardening (startup warm-up, total LLM deadline, background report writing, limits, full test list).
 
 The backend machine needs `ml/checkpoints/tb_densenet121_v2/best.pt` and `ml/checkpoints/nih_densenet121_v1/best.pt`. CPU deployment makes heatmaps slow (30–60 s); decide at deploy time (GPU host, background heatmaps, or coarser grid).

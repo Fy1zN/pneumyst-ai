@@ -404,7 +404,8 @@ flowchart LR
 | Section | Contents |
 |---|---|
 | Header | "Research prototype - not a diagnostic report" banner, analysis ID, analysis and report times (UTC), short image fingerprint, format, app version |
-| Case context | Case number, age band, sex and reason for the X-ray, labelled **"provided by the user, not used by the models or the summary"**, plus a blank line for the patient's name or ID written by hand |
+| Case and clinical context | Case number, age band, sex, reason, image view, position and source, TB risk factors, labelled **"provided by the user, not used by the models or the summary"**, plus a blank line for the patient's name or ID written by hand; an amber box lists any cautions |
+| Symptom screen | The WHO four-symptom screen result next to the TB model band, cough duration and other symptoms (present, absent, not asked); **"the AI does not combine symptoms with the X-ray scores"** |
 | Summary | The LangGraph summary, labelled with its source: the model that wrote it, or "template summary" |
 | Images | The 320 px image the models saw and up to three heatmaps (likely findings first), with a legend explaining that heatmaps are not lesion outlines |
 | Findings | All 15 findings grouped likely, possible, unlikely, not banded, unavailable; band written as a word (readable in grey), score, both thresholds, heatmap status |
@@ -417,6 +418,23 @@ If images are not stored, the report says so instead of failing. If no summary e
 ### Case context (optional, de-identified)
 
 Entered with the upload as four optional form fields, each from a fixed list so free text cannot carry names or histories: **case number** (letters, digits, `-` and `_` only, up to 32 characters, no spaces), **age band** (`0-17` … `80+`), **sex** (`female` / `male` / `other`) and **reason for the X-ray** (eight fixed choices). Anything else returns `422 INVALID_REQUEST`. The clinic links its own case number to the real patient in its own records; PNEUMYST AI never knows who it is. Case context is stored with the analysis, shown in history and on the report, and is **never used by the models or sent to the LLM**.
+
+### Clinical context, symptom screen and cautions
+
+Also optional and from fixed choices; a missing answer means **not asked**, never "no":
+
+| Group | Fields |
+|---|---|
+| Image | view (`PA` / `AP` / `lateral`), position (`standing` / `sitting` / `lying`), source (`digital X-ray` / `scanned film` / `phone photo of film`) |
+| Symptoms | current cough, fever, night sweats, weight loss (the WHO four), breathlessness, chest pain, coughing up blood (`yes` / `no`), cough duration (`under 2 weeks` / `2 weeks or more`) |
+| TB risk factors | close TB contact, treated for TB before, diabetes (`yes` / `no` / `unknown`), smoking (`never` / `former` / `current`) |
+
+Fixed rules (`backend/app/services/case_notes.py`, no AI) turn these into `case_notes`, returned with the analysis and shown on the report:
+
+- **WHO four-symptom screen:** positive if any of the four is present, negative only if all four were answered no, otherwise incomplete.
+- **Cautions** for known blind spots: age band `0-17` (models trained mainly on adults), lateral view (frontal views only), AP view (the AP/PA shortcut found in EDA), lying position (heart and fluid look different), phone photo of film (quality), treated for TB before (healed scars can raise the TB score).
+
+These sit **next to** the X-ray results for the clinician. They never change a score or band (a test checks that the same image gives identical results with and without context) and they are never sent to the LLM. Deliberately not collected: HIV status, pregnancy, exact age, dates, location, ethnicity, free text.
 
 **Never included:** name, patient ID, date of birth, exact address, phone number or any field filled in by AI.
 
@@ -443,7 +461,7 @@ flowchart LR
 
 ### Audit record (JSON)
 
-`GET /analyses/{id}/audit.json` (with the same `?download=true` option) returns a versioned record (`audit_version: 1`): analysis ID, user ID, timestamps, image hash and format, case context, model names and checkpoint hashes, preprocessing version and transform, every finding with its score, band and thresholds, stage statuses, errors and timings, which images are stored, the report trail (summary, source, model, time) and every audit event with status, latency and error code. Storage keys and links are never included. Any result in the PDF can be traced back to the exact computation that produced it.
+`GET /analyses/{id}/audit.json` (with the same `?download=true` option) returns a versioned record (`audit_version: 2`): analysis ID, user ID, timestamps, image hash and format, case context and the case notes with their rules version, model names and checkpoint hashes, preprocessing version and transform, every finding with its score, band and thresholds, stage statuses in pipeline order, errors and timings, which images are stored, the report trail (summary, source, model, time) and every audit event with status, latency and error code. Storage keys and links are never included. Any result in the PDF can be traced back to the exact computation that produced it.
 
 ---
 
@@ -916,6 +934,7 @@ gantt
 | Image storage (local) + signed links | ✅ Verified in running app (16 storage tests) |
 | Cloudflare R2 storage | ⬜ Not started (at deploy) |
 | Screening report (PDF) + audit record (JSON) + de-identified case context | ✅ Verified in running app (16 export tests) |
+| Clinical context, WHO symptom screen and model cautions (side by side, never combined) | ✅ Verified in running app (17 tests) |
 | Next.js dashboard and history | ⬜ Not started |
 | Test suite (18 required cases + auth isolation + report checks) | ⬜ Not started |
 | Deployment | ⬜ Not started |
