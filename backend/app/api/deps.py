@@ -6,6 +6,7 @@ from fastapi import Depends, Form, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from backend.app.agent.report_graph import ReportWriter
+from backend.app.agent.assistant import Assistant
 from backend.app.auth.clerk import AuthUnavailable, TokenError
 from backend.app.core.errors import ApiError
 from backend.app.repositories.analyses import AnalysisStore
@@ -44,6 +45,11 @@ def get_storage(request: Request) -> LocalStorage | None:
 
 def get_report_writer(request: Request) -> ReportWriter:
     return request.app.state.report_writer
+
+def get_assistant(request: Request) -> Assistant | None:
+    return request.app.state.assistant
+
+
 
 
 def case_context_form(

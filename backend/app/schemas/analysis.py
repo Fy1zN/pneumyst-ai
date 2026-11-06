@@ -146,6 +146,20 @@ class AnalysisPage(BaseModel):
     limit: int
     offset: int
 
+class AskRequest(BaseModel):
+    question: str = Field(min_length=3, max_length=500)
+
+
+class AskResponse(BaseModel):
+    analysis_id: str
+    answer: str
+    refused: bool
+    tools_used: list[str]
+    model: str | None
+    disclaimer: str
+
+
+
 
 class FindingConfig(BaseModel):
     finding: str

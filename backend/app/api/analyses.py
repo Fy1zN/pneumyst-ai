@@ -8,9 +8,10 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
+from backend.app.agent.assistant import Assistant, AssistantUnavailable
 from backend.app.agent.facts import build_facts
 from backend.app.agent.report_graph import DISCLAIMER, ReportWriter
-from backend.app.api.deps import get_current_user, get_report_writer, get_storage, get_store
+from backend.app.api.deps import get_assistant, get_current_user, get_report_writer, get_storage, get_store
 from backend.app.core.errors import ApiError
 from backend.app.db.models import AnalysisRecord, utcnow
 from backend.app.reporting.audit import build_audit
@@ -20,6 +21,8 @@ from backend.app.schemas.analysis import (
     AnalysisPage,
     AnalysisResponse,
     AnalysisSummary,
+    AskRequest,
+    AskResponse,
     CaseContext,
     ErrorResponse,
     FlaggedFinding,
@@ -150,6 +153,31 @@ async def audit_json(analysis_id: str, request: Request, download: bool = DOWNLO
     events = await call_store(store, "audit_events", user_id, analysis_id)
     return JSONResponse(build_audit(row, events, request.app.version, utcnow()),
                         headers=disposition(row, "-audit.json", download))
+
+
+@router.post("/{analysis_id}/ask", response_model=AskResponse, responses=ERRORS)
+async def ask(analysis_id: str, body: AskRequest, store: AnalysisStore | None = Depends(get_store),
+              assistant: Assistant | None = Depends(get_assistant),
+              user_id: str = Depends(get_current_user)) -> AskResponse:
+    """Ask the assistant about one saved analysis. Only which tools ran is recorded, never the question."""
+    analysis_id = require_uuid(analysis_id)
+    if await call_store(store, "get", user_id, analysis_id) is None:
+        raise ApiError(404, "ANALYSIS_NOT_FOUND", "no such analysis", analysis_id)
+    if assistant is None:
+        raise ApiError(503, "ASSISTANT_UNAVAILABLE", "the assistant is not configured", analysis_id)
+    try:
+        result = await run_in_threadpool(assistant.ask, store, user_id, analysis_id, body.question)
+    except AssistantUnavailable:
+        await call_store(store, "add_events", analysis_id, [{"step": "ask", "status": "failed",
+                                                              "error_code": "LLM_FAILED"}])
+        raise ApiError(503, "ASSISTANT_UNAVAILABLE", "the assistant could not answer, try again shortly",
+                       analysis_id)
+    events = [{"step": f"ask:{name}", "status": "success"} for name in result.tools_used]
+    events.append({"step": "ask", "status": "refused" if result.refused else "answered",
+                   "error_code": result.reason, "latency_ms": result.latency_ms})
+    await call_store(store, "add_events", analysis_id, events)
+    return AskResponse(analysis_id=analysis_id, answer=result.answer, refused=result.refused,
+                       tools_used=result.tools_used, model=result.model, disclaimer=DISCLAIMER)
 
 
 @router.delete("/{analysis_id}", status_code=204, response_class=Response, responses=ERRORS)

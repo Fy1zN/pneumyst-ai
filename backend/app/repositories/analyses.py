@@ -87,6 +87,10 @@ class AnalysisStore:
                                        error_code=result.reason, latency_ms=result.latency_ms, created_at=now))
         return self.get(user_id, analysis_id)
 
+    def add_events(self, analysis_id: str, events: list[dict]) -> None:
+        with self.db.session.begin() as s:
+            s.add_all(AuditEventRecord(analysis_id=analysis_id, created_at=utcnow(), **e) for e in events)
+
     def delete(self, user_id: str, analysis_id: str) -> bool:
         with self.db.session.begin() as s:
             owned = s.scalar(select(AnalysisRecord.id).where(AnalysisRecord.id == analysis_id,

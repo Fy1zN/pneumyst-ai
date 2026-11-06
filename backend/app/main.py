@@ -9,6 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from backend.app.agent.assistant import Assistant
 from backend.app.agent.llm import make_chat_model
 from backend.app.agent.report_graph import ReportWriter
 from backend.app.api import analyses, analyze, files, health
@@ -55,9 +56,18 @@ def make_report_writer(settings: Settings) -> ReportWriter:
     return ReportWriter(model, settings.llm_model)
 
 
+def make_assistant(settings: Settings) -> Assistant | None:
+    model = make_chat_model(settings)
+    if model is None:
+        logger.warning("LLM_API_KEY is not set: the assistant is unavailable")
+        return None
+    return Assistant(model, settings.llm_model)
+
+
 def create_app(settings: Settings | None = None, screening: ScreeningService | None = None,
                store: AnalysisStore | None = None, verifier: ClerkVerifier | None = None,
-               storage: LocalStorage | None = None, report_writer: ReportWriter | None = None) -> FastAPI:
+               storage: LocalStorage | None = None, report_writer: ReportWriter | None = None,
+               assistant: Assistant | None = None) -> FastAPI:
     settings = settings or load_settings()
 
     @asynccontextmanager
@@ -66,6 +76,7 @@ def create_app(settings: Settings | None = None, screening: ScreeningService | N
         app.state.verifier = verifier or make_verifier(settings)
         app.state.storage = storage or make_storage(settings)
         app.state.report_writer = report_writer or make_report_writer(settings)
+        app.state.assistant = assistant or make_assistant(settings)
         app.state.screening = screening or ScreeningService.load(settings)
         for m in app.state.screening.models:
             logger.info("model %s: %s", m.name, "loaded" if m.available else m.error)
@@ -77,7 +88,7 @@ def create_app(settings: Settings | None = None, screening: ScreeningService | N
         if owned:
             app.state.store.db.dispose()
 
-    app = FastAPI(title="PNEUMYST AI", version="0.7.0", lifespan=lifespan,
+    app = FastAPI(title="PNEUMYST AI", version="0.8.0", lifespan=lifespan,
                   description="Research screening API for chest X-rays. Not a diagnostic device.")
     app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins),
                        allow_methods=["GET", "POST", "DELETE"], allow_headers=["Authorization", "Content-Type"])

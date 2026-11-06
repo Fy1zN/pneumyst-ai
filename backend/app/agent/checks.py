@@ -56,3 +56,26 @@ def check_summary(text: str, facts: dict) -> list[str]:
     if (facts["unavailable"] or facts["problems"]) and not re.search(r"unavailable|failed|could not", lower):
         issues.append("does not say which parts of the screening were unavailable or failed")
     return issues
+
+
+ANSWER_MAX_WORDS = 200
+
+
+def check_answer(text: str, sources: list[str]) -> list[str]:
+    """Checks on an assistant answer: no diagnosis or treatment language, and every number taken from the tool
+    results or the question. Small counts are allowed."""
+    issues = []
+    words = len(text.split())
+    if not words:
+        issues.append("empty answer")
+    elif words > ANSWER_MAX_WORDS:
+        issues.append(f"answer is {words} words; at most {ANSWER_MAX_WORDS}")
+    allowed = {n for source in sources for n in NUMBER.findall(source)} | {str(i) for i in range(21)}
+    unknown = sorted(set(NUMBER.findall(text)) - allowed)
+    if unknown:
+        issues.append(f"numbers not in the tool results: {', '.join(unknown)}")
+    for pattern, reason in BANNED.items():
+        match = re.search(pattern, text.lower())
+        if match:
+            issues.append(f"'{match.group()}' {reason}")
+    return issues

@@ -12,6 +12,7 @@ from PIL import Image
 from sqlalchemy.pool import StaticPool
 from torch import nn
 
+from backend.app.agent.assistant import Assistant
 from backend.app.agent.report_graph import ReportWriter
 from backend.app.core.config import Settings
 from backend.app.db.models import Base
@@ -62,10 +63,11 @@ def memory_store() -> AnalysisStore:
 
 
 def make_client(store: AnalysisStore | None = None, user: str = "local-dev", service=None,
-                storage: LocalStorage | None = None, report_writer: ReportWriter | None = None) -> TestClient:
+                storage: LocalStorage | None = None, report_writer: ReportWriter | None = None,
+                assistant: Assistant | None = None) -> TestClient:
     service = service or make_service(*default_models())
     settings = Settings(auth_mode="dev", dev_user_id=user)
-    app = create_app(settings, service, store, storage=storage, report_writer=report_writer)
+    app = create_app(settings, service, store, storage=storage, report_writer=report_writer, assistant=assistant)
     return TestClient(app, raise_server_exceptions=False)
 
 
