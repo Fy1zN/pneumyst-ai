@@ -8,6 +8,7 @@ All values in the pictures are sample data. Band thresholds in the PDF pages are
 | Screen | File |
 |---|---|
 | Landing | [screens/landing.png](screens/landing.png) |
+| New scan | [screens/new-scan.png](screens/new-scan.png) |
 | Register | [screens/register.png](screens/register.png) |
 | History | [screens/history.png](screens/history.png) |
 | History, no scans yet | [screens/history-empty.png](screens/history-empty.png) |
@@ -18,8 +19,7 @@ All values in the pictures are sample data. Band thresholds in the PDF pages are
 | Results, Details tab | [screens/results-details.png](screens/results-details.png) |
 | Results, overlay viewer | [screens/results-overlay.png](screens/results-overlay.png) |
 
-Still to export: New scan, Screening in progress and Sign in. In the Figma file the Sign in frame had ended up
-inside the New scan page, so those exports were not usable.
+Still to export: Screening in progress and Sign in.
 
 ## Phone (390 px)
 
