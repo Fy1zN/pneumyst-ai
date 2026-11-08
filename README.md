@@ -675,7 +675,8 @@ TB v1 reached AUROC 0.998 on TBX11K but was overconfident (scores almost only 0 
 | **Object storage** | Local folder with HMAC-signed links · Cloudflare R2 (S3-compatible, boto3, presigned URLs) at deploy |
 | **Reports** | ReportLab (PDF) · JSON audit records |
 | **LLM and agent** | OpenAI or Gemini (provider set in `.env`) · **LangGraph** for the report-writing workflow (draft, check, retry or template fallback) and the tool-calling assistant agent |
-| **Frontend** | Next.js · React · Tailwind CSS · Recharts · `@clerk/nextjs` |
+| **Frontend** | Next.js 16 (App Router, TypeScript) · React 19 · Tailwind CSS 4 · `next/font` · openapi-typescript (types generated from the FastAPI schema) · `@clerk/nextjs` |
+| **Design** | Figma (screens, phone layouts, PDF pages, error states), exported to [`docs/design/`](docs/design/README.md) |
 | **Optional** | Ultralytics YOLOv8 (TB localization) · U-Net (pneumothorax segmentation) |
 | **Tooling** | Git · GitHub · Antigravity · VS Code |
 | **Deployment** | Vercel (frontend) · Hugging Face Spaces / Render (backend, CPU) · hosted MySQL (e.g. Aiven) · Cloudflare R2 |
@@ -688,11 +689,12 @@ TB v1 reached AUROC 0.998 on TBX11K but was overconfident (scores almost only 0 
 
 ```text
 pneumyst-ai/
-├── frontend/                 # Next.js dashboard (created with create-next-app)
-│   ├── app/                  # pages: sign-in, sign-up, upload, results, history
-│   ├── components/           # viewer, score cards, status chips, report
-│   ├── lib/                  # API client (attaches Clerk token)
-│   └── types/                # TypeScript mirrors of backend schemas
+├── frontend/                 # Next.js 16 app (TypeScript, Tailwind CSS 4)
+│   ├── public/               # lung artwork
+│   └── src/
+│       ├── app/              # pages (home, scan, history; sign-in, results and more as they are built) + theme
+│       ├── components/       # glass nav, footer, logo, shared parts
+│       └── lib/              # API client (api.ts) + types generated from the backend (api-types.ts)
 ├── backend/
 │   ├── app/
 │   │   ├── api/              # FastAPI routes: health, models, analyze, analyses, report, ask, files
@@ -737,7 +739,7 @@ pneumyst-ai/
 
 - Python 3.12
 - NVIDIA GPU with a recent driver (optional but recommended for training)
-- Node.js 18+ (for the frontend)
+- Node.js 20+ (for the frontend; developed on 22)
 - MySQL 8 (local install for development)
 - Free accounts on [Clerk](https://clerk.com/) and [Cloudflare](https://dash.cloudflare.com/) (for R2)
 - About 50 GB of free disk space for the raw datasets, plus ~10 GB for processed images
@@ -842,15 +844,25 @@ uvicorn backend.app.main:app
 
 The models load once at startup. `http://localhost:8000/health` shows the device and model status, and `http://localhost:8000/docs` lets you try every endpoint. Optional settings in `.env`: `MODEL_DEVICE` (`auto`, `cpu` or `cuda`), `MAX_UPLOAD_MB` (default 20), `QUEUE_TIMEOUT_S` (default 60), `CORS_ORIGINS`.
 
-### 12. Run the frontend *(planned)*
+### 12. Run the frontend
+
+Needs Node.js 20 or newer. Start the backend first (step 11), then in a second terminal:
 
 ```powershell
 cd frontend
+Copy-Item .env.example .env.local   # NEXT_PUBLIC_API_URL=http://localhost:8000
 npm install
 npm run dev
 ```
 
-App: `http://localhost:3000`
+App: `http://localhost:3000`. The home page shows a small badge confirming the backend is reachable.
+
+| Command | What it does |
+|---|---|
+| `npm run api:types` | Regenerates `src/lib/api-types.ts` from the running backend's `/openapi.json`; run it after a backend response changes |
+| `npm run typecheck` | TypeScript check |
+| `npm run lint` | ESLint |
+| `npm run build` | Production build (also type-checks) |
 
 ---
 
@@ -977,7 +989,8 @@ gantt
 | Cloudflare R2 storage | ⬜ Not started (at deploy) |
 | Screening report (PDF) + audit record (JSON) + de-identified case context | ✅ Verified in running app (16 export tests) |
 | Clinical context, WHO symptom screen and model cautions (side by side, never combined) | ✅ Verified in running app (17 tests) |
-| Next.js dashboard and history | ⬜ Not started |
+| Design (Figma, exported) | ✅ Implemented ([`docs/design/`](docs/design/README.md)) |
+| Next.js frontend | 🟨 In progress (F1 verified in running app: theme, glass nav, footer, typed API client; sign-in, scan, results and history next) |
 | Test suite | ✅ 186 tests (56 ML + 130 backend); see [What the tests cover](#what-the-tests-cover) |
 | Deployment | ⬜ Not started |
 | Localization (optional) | ⬜ Not started |
