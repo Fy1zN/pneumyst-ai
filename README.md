@@ -850,12 +850,12 @@ Needs Node.js 20 or newer. Start the backend first (step 11), then in a second t
 
 ```powershell
 cd frontend
-Copy-Item .env.example .env.local   # NEXT_PUBLIC_API_URL=http://localhost:8000
+Copy-Item .env.example .env.local   # then paste the two Clerk keys (dashboard.clerk.com > API keys)
 npm install
 npm run dev
 ```
 
-App: `http://localhost:3000`. The home page shows a small badge confirming the backend is reachable.
+App: `http://localhost:3000`. Sign-in uses Clerk (email code, Google, GitHub); New scan and History require it. The backend must run with `AUTH_MODE=clerk` and the same Clerk application's `CLERK_ISSUER` and `CLERK_JWKS_URL`. The home page shows two temporary checks: the backend is reachable, and the backend accepts the signed-in token.
 
 | Command | What it does |
 |---|---|
@@ -983,14 +983,14 @@ gantt
 | Assistant agent (LangGraph, tool calling, read-only tools) | ✅ Verified in running app (Gemini; 8 assistant tests) |
 | FastAPI endpoints | ✅ Verified in running app (health, models, analyze, history, report, PDF, audit JSON, ask, files) |
 | Hardening (warm-up, background reports, deadlines, rate limits, request IDs) | ✅ Verified in running app (9 tests) |
-| Clerk authentication | ✅ Tested (19 auth tests; live 401 checks; real sign-in comes with the frontend) |
+| Clerk authentication | ✅ Verified in running app (19 auth tests; real sign-in from the frontend accepted by the backend) |
 | MySQL schema and migrations | ✅ Verified in running app (Alembic `0001` on MySQL 8.0) |
 | Image storage (local) + signed links | ✅ Verified in running app (16 storage tests) |
 | Cloudflare R2 storage | ⬜ Not started (at deploy) |
 | Screening report (PDF) + audit record (JSON) + de-identified case context | ✅ Verified in running app (16 export tests) |
 | Clinical context, WHO symptom screen and model cautions (side by side, never combined) | ✅ Verified in running app (17 tests) |
 | Design (Figma, exported) | ✅ Implemented ([`docs/design/`](docs/design/README.md)) |
-| Next.js frontend | 🟨 In progress (F1 verified in running app: theme, glass nav, footer, typed API client; sign-in, scan, results and history next) |
+| Next.js frontend | 🟨 In progress (verified in running app: F1 theme, glass nav, footer, typed API client; F2 Clerk sign-in, protected pages, signed API calls; scan, results and history next) |
 | Test suite | ✅ 186 tests (56 ML + 130 backend); see [What the tests cover](#what-the-tests-cover) |
 | Deployment | ⬜ Not started |
 | Localization (optional) | ⬜ Not started |
