@@ -111,7 +111,7 @@ def test_audit_record_is_complete_and_hides_storage(storage):
         r = c.get(f"/analyses/{analysis_id}/audit.json", params={"download": "true"})
     audit = r.json()
     assert r.headers["content-disposition"] == 'attachment; filename="pneumyst-CASE-0042-audit.json"'
-    assert audit["audit_version"] == 2 and audit["app_version"] == "0.8.0"
+    assert audit["audit_version"] == 2 and audit["app_version"] == "0.9.0"
     assert audit["analysis"]["id"] == analysis_id and audit["case_context"] == CASE
     assert len(audit["findings"]) == 15 and audit["models"][0]["checkpoint_sha256"]
     assert audit["stored_images"] == {"image": True, "heatmaps": ["Tuberculosis"]}

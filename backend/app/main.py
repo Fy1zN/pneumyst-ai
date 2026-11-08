@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import logging
+import re
+import uuid
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -16,13 +19,27 @@ from backend.app.api import analyses, analyze, files, health
 from backend.app.auth.clerk import ClerkVerifier
 from backend.app.core.config import Settings, load_settings
 from backend.app.core.errors import ApiError
+from backend.app.core.limits import RateLimiter
 from backend.app.db.session import Database
 from backend.app.repositories.analyses import AnalysisStore
 from backend.app.schemas.analysis import ErrorResponse
+from backend.app.services.reports import ReportJobs
 from backend.app.services.screening import ScreeningService
 from backend.app.storage.files import LocalStorage
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+request_id: ContextVar[str] = ContextVar("request_id", default="-")
+REQUEST_ID = re.compile(r"^[A-Za-z0-9-]{1,64}$")
+
+
+class RequestIdFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.request_id = request_id.get()
+        return True
+
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s [%(request_id)s]: %(message)s")
+for handler in logging.getLogger().handlers:
+    handler.addFilter(RequestIdFilter())
 logger = logging.getLogger("pneumyst")
 
 
@@ -80,27 +97,48 @@ def create_app(settings: Settings | None = None, screening: ScreeningService | N
         app.state.screening = screening or ScreeningService.load(settings)
         for m in app.state.screening.models:
             logger.info("model %s: %s", m.name, "loaded" if m.available else m.error)
+        if settings.warmup:
+            logger.info("warm-up done in %.0f ms", app.state.screening.warm_up())
         owned = store is None and settings.database_url is not None
         app.state.store = AnalysisStore(Database(settings.database_url)) if owned else store
         if app.state.store is None:
             logger.warning("DATABASE_URL is not set: results will not be saved")
+        app.state.report_jobs = (ReportJobs(app.state.report_writer, app.state.store, settings.report_deadline_s)
+                                 if app.state.store is not None else None)
+        app.state.limiter = RateLimiter({"analyze": settings.rate_analyze_per_hour,
+                                         "ask": settings.rate_ask_per_hour})
         yield
+        if app.state.report_jobs is not None:
+            app.state.report_jobs.close()
         if owned:
             app.state.store.db.dispose()
 
-    app = FastAPI(title="PNEUMYST AI", version="0.8.0", lifespan=lifespan,
+    app = FastAPI(title="PNEUMYST AI", version="0.9.0", lifespan=lifespan,
                   description="Research screening API for chest X-rays. Not a diagnostic device.")
     app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins),
-                       allow_methods=["GET", "POST", "DELETE"], allow_headers=["Authorization", "Content-Type"])
+                       allow_methods=["GET", "POST", "DELETE"], allow_headers=["Authorization", "Content-Type"],
+                       expose_headers=["X-Request-ID", "Retry-After", "Content-Disposition"])
     app.include_router(health.router)
     app.include_router(analyze.router)
     app.include_router(analyses.router)
     app.include_router(files.router)
 
+    @app.middleware("http")
+    async def tag_request(request: Request, call_next):
+      
+        given = request.headers.get("X-Request-ID", "")
+        token = request_id.set(given if REQUEST_ID.fullmatch(given) else uuid.uuid4().hex[:12])
+        try:
+            response = await call_next(request)
+            response.headers["X-Request-ID"] = request_id.get()
+            return response
+        finally:
+            request_id.reset(token)
+
     @app.exception_handler(ApiError)
     async def api_error(_: Request, exc: ApiError) -> JSONResponse:
         body = ErrorResponse(error_code=exc.error_code, detail=exc.detail, analysis_id=exc.analysis_id)
-        return JSONResponse(status_code=exc.status_code, content=body.model_dump())
+        return JSONResponse(status_code=exc.status_code, content=body.model_dump(), headers=exc.headers)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(_: Request, exc: RequestValidationError) -> JSONResponse:

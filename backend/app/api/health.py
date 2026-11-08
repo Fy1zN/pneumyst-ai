@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from backend.app.api.deps import get_current_user, get_screening, get_store
 from backend.app.repositories.analyses import AnalysisStore
@@ -12,7 +12,7 @@ router = APIRouter(tags=["service"])
 
 
 @router.get("/health", response_model=HealthResponse)
-def health(screening: ScreeningService = Depends(get_screening),
+def health(request: Request, screening: ScreeningService = Depends(get_screening),
            store: AnalysisStore | None = Depends(get_store)) -> HealthResponse:
     available = {m.name: m.available for m in screening.models}
     database = "not_configured" if store is None else ("ok" if store.db.ping() else "unavailable")
@@ -22,7 +22,14 @@ def health(screening: ScreeningService = Depends(get_screening),
         status = "ok"
     else:
         status = "degraded"
-    return HealthResponse(status=status, device=screening.device, models=available, database=database)
+    state = request.app.state
+    llm = state.assistant is not None
+    # Configuration only, never a key or URL: enough to spot a missing LLM or dev auth left on after deploy.
+    return HealthResponse(status=status, version=request.app.version, device=screening.device, models=available,
+                          database=database, storage="configured" if state.storage else "not_configured",
+                          llm="configured" if llm else "not_configured",
+                          llm_provider=state.settings.llm_provider if llm else None,
+                          auth_mode=state.settings.auth_mode)
 
 
 @router.get("/models", response_model=list[ModelStatus], dependencies=[Depends(get_current_user)])

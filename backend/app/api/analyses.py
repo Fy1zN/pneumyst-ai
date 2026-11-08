@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
+from concurrent.futures import TimeoutError as JobTimeout
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
@@ -9,10 +11,17 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.app.agent.assistant import Assistant, AssistantUnavailable
-from backend.app.agent.facts import build_facts
-from backend.app.agent.report_graph import DISCLAIMER, ReportWriter
-from backend.app.api.deps import get_assistant, get_current_user, get_report_writer, get_storage, get_store
+from backend.app.agent.report_graph import DISCLAIMER
+from backend.app.api.deps import (
+    get_assistant,
+    get_current_user,
+    get_limiter,
+    get_report_jobs,
+    get_storage,
+    get_store,
+)
 from backend.app.core.errors import ApiError
+from backend.app.core.limits import RateLimiter
 from backend.app.db.models import AnalysisRecord, utcnow
 from backend.app.reporting.audit import build_audit
 from backend.app.reporting.pdf import build_pdf
@@ -29,6 +38,7 @@ from backend.app.schemas.analysis import (
     ReportResponse,
 )
 from backend.app.services.case_notes import case_notes
+from backend.app.services.reports import ReportJobs
 from backend.app.storage.files import LocalStorage
 from backend.app.storage.images import image_links, remove_images
 
@@ -87,14 +97,22 @@ async def get_analysis(analysis_id: str, request: Request, store: AnalysisStore 
         case_notes=case_notes(row.case_context))
 
 
-async def load_report(analysis_id: str, store: AnalysisStore | None, writer: ReportWriter,
+async def load_report(analysis_id: str, store: AnalysisStore | None, jobs: ReportJobs | None,
                       user_id: str) -> tuple[AnalysisRecord, ReportResponse]:
-    """The analysis and its summary, written on first request and stored so it never calls the LLM again."""
+    """The analysis and its summary. A missing summary is written once by the report job; past the deadline the
+    caller gets the template at once and the job's result is saved for the next request."""
     analysis_id = require_uuid(analysis_id)
     row = await call_store(store, "get", user_id, analysis_id)
     if row is not None and row.report is None:
-        result = await run_in_threadpool(writer.write, build_facts(row.findings, row.errors))
-        row = await call_store(store, "save_report", user_id, analysis_id, result)
+        try:
+            result = await run_in_threadpool(jobs.wait, user_id, row)
+        except JobTimeout:
+            result = jobs.late(row)
+            await call_store(store, "add_events", analysis_id, [{"step": "report", "status": "template",
+                                                                  "error_code": result.reason}])
+        except SQLAlchemyError:
+            raise ApiError(503, "DATABASE_UNAVAILABLE", "the database could not be reached")
+        row = await call_store(store, "get", user_id, analysis_id)
         if row is not None and row.report is None:
             return row, ReportResponse(analysis_id=row.id, summary=result.text, source=result.source, model=None,
                                        created_at=utcnow(), disclaimer=DISCLAIMER)
@@ -123,9 +141,9 @@ def disposition(row: AnalysisRecord, suffix: str, download: bool) -> dict[str, s
 
 @router.get("/{analysis_id}/report", response_model=ReportResponse, responses=ERRORS)
 async def get_report(analysis_id: str, store: AnalysisStore | None = Depends(get_store),
-                     writer: ReportWriter = Depends(get_report_writer),
+                     jobs: ReportJobs | None = Depends(get_report_jobs),
                      user_id: str = Depends(get_current_user)) -> ReportResponse:
-    _, report = await load_report(analysis_id, store, writer, user_id)
+    _, report = await load_report(analysis_id, store, jobs, user_id)
     return report
 
 
@@ -134,9 +152,9 @@ async def get_report(analysis_id: str, store: AnalysisStore | None = Depends(get
 async def report_pdf(analysis_id: str, request: Request, download: bool = DOWNLOAD,
                      store: AnalysisStore | None = Depends(get_store),
                      storage: LocalStorage | None = Depends(get_storage),
-                     writer: ReportWriter = Depends(get_report_writer),
+                     jobs: ReportJobs | None = Depends(get_report_jobs),
                      user_id: str = Depends(get_current_user)) -> Response:
-    row, report = await load_report(analysis_id, store, writer, user_id)
+    row, report = await load_report(analysis_id, store, jobs, user_id)
     images = await run_in_threadpool(stored_images, storage, row)
     pdf = await run_in_threadpool(build_pdf, row, report.model_dump(), images, request.app.version, utcnow())
     return Response(pdf, media_type="application/pdf", headers=disposition(row, "-report.pdf", download))
@@ -156,20 +174,24 @@ async def audit_json(analysis_id: str, request: Request, download: bool = DOWNLO
 
 
 @router.post("/{analysis_id}/ask", response_model=AskResponse, responses=ERRORS)
-async def ask(analysis_id: str, body: AskRequest, store: AnalysisStore | None = Depends(get_store),
-              assistant: Assistant | None = Depends(get_assistant),
+async def ask(analysis_id: str, body: AskRequest, request: Request, store: AnalysisStore | None = Depends(get_store),
+              assistant: Assistant | None = Depends(get_assistant), limiter: RateLimiter = Depends(get_limiter),
               user_id: str = Depends(get_current_user)) -> AskResponse:
     """Ask the assistant about one saved analysis. Only which tools ran is recorded, never the question."""
+    limiter.check("ask", user_id)
     analysis_id = require_uuid(analysis_id)
     if await call_store(store, "get", user_id, analysis_id) is None:
         raise ApiError(404, "ANALYSIS_NOT_FOUND", "no such analysis", analysis_id)
     if assistant is None:
         raise ApiError(503, "ASSISTANT_UNAVAILABLE", "the assistant is not configured", analysis_id)
+    deadline = request.app.state.settings.ask_deadline_s
     try:
-        result = await run_in_threadpool(assistant.ask, store, user_id, analysis_id, body.question)
-    except AssistantUnavailable:
-        await call_store(store, "add_events", analysis_id, [{"step": "ask", "status": "failed",
-                                                              "error_code": "LLM_FAILED"}])
+        # The thread may run on after the deadline; its answer is dropped and nothing is stored.
+        result = await asyncio.wait_for(
+            run_in_threadpool(assistant.ask, store, user_id, analysis_id, body.question), deadline)
+    except (AssistantUnavailable, TimeoutError) as exc:
+        code = "LLM_TIMEOUT" if isinstance(exc, TimeoutError) else "LLM_FAILED"
+        await call_store(store, "add_events", analysis_id, [{"step": "ask", "status": "failed", "error_code": code}])
         raise ApiError(503, "ASSISTANT_UNAVAILABLE", "the assistant could not answer, try again shortly",
                        analysis_id)
     events = [{"step": f"ask:{name}", "status": "success"} for name in result.tools_used]

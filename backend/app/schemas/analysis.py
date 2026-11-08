@@ -125,6 +125,19 @@ class ReportResponse(BaseModel):
     disclaimer: str
 
 
+class AskRequest(BaseModel):
+    question: str = Field(min_length=3, max_length=500)
+
+
+class AskResponse(BaseModel):
+    analysis_id: str
+    answer: str
+    refused: bool
+    tools_used: list[str]
+    model: str | None
+    disclaimer: str
+
+
 class FlaggedFinding(BaseModel):
     finding: str
     display_name: str
@@ -146,20 +159,6 @@ class AnalysisPage(BaseModel):
     limit: int
     offset: int
 
-class AskRequest(BaseModel):
-    question: str = Field(min_length=3, max_length=500)
-
-
-class AskResponse(BaseModel):
-    analysis_id: str
-    answer: str
-    refused: bool
-    tools_used: list[str]
-    model: str | None
-    disclaimer: str
-
-
-
 
 class FindingConfig(BaseModel):
     finding: str
@@ -179,6 +178,11 @@ class ModelStatus(BaseModel):
 
 class HealthResponse(BaseModel):
     status: Literal["ok", "degraded", "down"]
+    version: str
     device: str
     models: dict[str, bool]
     database: Literal["ok", "unavailable", "not_configured"]
+    storage: Literal["configured", "not_configured"]
+    llm: Literal["configured", "not_configured"]
+    llm_provider: str | None
+    auth_mode: str

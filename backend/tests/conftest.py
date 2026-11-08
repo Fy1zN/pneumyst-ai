@@ -64,9 +64,9 @@ def memory_store() -> AnalysisStore:
 
 def make_client(store: AnalysisStore | None = None, user: str = "local-dev", service=None,
                 storage: LocalStorage | None = None, report_writer: ReportWriter | None = None,
-                assistant: Assistant | None = None) -> TestClient:
+                assistant: Assistant | None = None, **settings) -> TestClient:
     service = service or make_service(*default_models())
-    settings = Settings(auth_mode="dev", dev_user_id=user)
+    settings = Settings(auth_mode="dev", dev_user_id=user, **settings)
     app = create_app(settings, service, store, storage=storage, report_writer=report_writer, assistant=assistant)
     return TestClient(app, raise_server_exceptions=False)
 

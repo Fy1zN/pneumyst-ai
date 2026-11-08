@@ -32,6 +32,13 @@ class Settings:
     llm_fallback_model: str | None = None     # tried when the main model is busy, slow or failing
     llm_thinking_level: str | None = None     # Gemini 3+ only, e.g. "low" for short summaries
     llm_timeout_s: float = 20.0
+    # The library defaults suit tests; load_settings turns warm-up and background reports on for the server.
+    warmup: bool = False                      # one screening at startup so the first request is not slower
+    background_reports: bool = False          # write the summary right after /analyze saves
+    report_deadline_s: float = 45.0           # longest a request waits for a summary before the template
+    ask_deadline_s: float = 60.0              # longest a request waits for the assistant
+    rate_analyze_per_hour: int = 30           # per user; 0 turns the limit off
+    rate_ask_per_hour: int = 20
 
 
 def load_settings() -> Settings:
@@ -61,4 +68,10 @@ def load_settings() -> Settings:
         llm_fallback_model=os.environ.get("LLM_FALLBACK_MODEL", "").strip() or None,
         llm_thinking_level=os.environ.get("LLM_THINKING_LEVEL", "").strip().lower() or None,
         llm_timeout_s=float(os.environ.get("LLM_TIMEOUT_S", "20")),
+        warmup=os.environ.get("WARMUP", "true").strip().lower() == "true",
+        background_reports=os.environ.get("BACKGROUND_REPORTS", "true").strip().lower() == "true",
+        report_deadline_s=float(os.environ.get("REPORT_DEADLINE_S", "45")),
+        ask_deadline_s=float(os.environ.get("ASK_DEADLINE_S", "60")),
+        rate_analyze_per_hour=int(os.environ.get("RATE_ANALYZE_PER_HOUR", "30")),
+        rate_ask_per_hour=int(os.environ.get("RATE_ASK_PER_HOUR", "20")),
     )

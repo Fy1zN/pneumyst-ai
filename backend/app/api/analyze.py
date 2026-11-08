@@ -7,11 +7,21 @@ from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.exc import SQLAlchemyError
 
-from backend.app.api.deps import case_context_form, get_current_user, get_screening, get_storage, get_store
+from backend.app.api.deps import (
+    case_context_form,
+    get_current_user,
+    get_limiter,
+    get_report_jobs,
+    get_screening,
+    get_storage,
+    get_store,
+)
 from backend.app.core.errors import ApiError
+from backend.app.core.limits import RateLimiter
 from backend.app.repositories.analyses import AnalysisStore
 from backend.app.schemas.analysis import AnalysisResponse, CaseContext, ErrorResponse
 from backend.app.services.case_notes import case_notes
+from backend.app.services.reports import ReportJobs
 from backend.app.services.screening import Analysis, ScreeningService
 from backend.app.storage.files import LocalStorage
 from backend.app.storage.images import STAGE, image_links, remove_images, save_images
@@ -28,7 +38,10 @@ async def analyze(request: Request, file: UploadFile = File(..., description="Ch
                   screening: ScreeningService = Depends(get_screening),
                   store: AnalysisStore | None = Depends(get_store),
                   storage: LocalStorage | None = Depends(get_storage),
+                  jobs: ReportJobs | None = Depends(get_report_jobs),
+                  limiter: RateLimiter = Depends(get_limiter),
                   user_id: str = Depends(get_current_user)) -> AnalysisResponse:
+    limiter.check("analyze", user_id)
     analysis_id = str(uuid.uuid4())
     # Read one byte past the limit so an oversized upload is detected without loading all of it.
     data = await file.read(screening.settings.max_upload_bytes + 1)
@@ -47,6 +60,10 @@ async def analyze(request: Request, file: UploadFile = File(..., description="Ch
     persistence_error, keys = await persist(analysis, models, user_id, store, storage, case or None)
     logger.info("analysis %s %s in %.0f ms, %s", analysis_id, analysis.result.status,
                 analysis.result.timings_ms.get("total", 0.0), persistence_error or "saved")
+    if persistence_error is None and jobs is not None and request.app.state.settings.background_reports:
+        # Started now so the summary is usually ready before anyone opens the report.
+        result = analysis.result.to_dict()
+        jobs.submit(user_id, analysis_id, result["findings"], result["errors"])
     return to_response(analysis, models, persistence_error, image_links(storage, keys, str(request.base_url)),
                        case or None)
 

@@ -4,10 +4,12 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
 from fastapi.concurrency import run_in_threadpool
 
 from backend.app.core.config import Settings
@@ -100,6 +102,14 @@ class ScreeningService:
             raise ApiError(503, "MODEL_UNAVAILABLE" if unavailable else "INFERENCE_FAILED",
                            "no model produced a result", analysis_id)
         return Analysis(analysis_id, created, digest, fmt, result)
+
+    def warm_up(self) -> float:
+        """One screening of a synthetic image, so GPU kernels are chosen before the first real request."""
+        t0 = time.perf_counter()
+        image = np.random.default_rng(0).normal(120, 30, (400, 400)).clip(0, 255).astype(np.uint8)
+        with self._slot:
+            self.screener.screen(image, explain=False)
+        return (time.perf_counter() - t0) * 1000
 
     def _screen(self, data: bytes, explain: bool) -> ScreeningResult:
         if not self._slot.acquire(timeout=self.settings.queue_timeout_s):
