@@ -9,6 +9,8 @@ All values in the pictures are sample data. Band thresholds in the PDF pages are
 |---|---|
 | Landing | [screens/landing.png](screens/landing.png) |
 | New scan | [screens/new-scan.png](screens/new-scan.png) |
+| Screening in progress | [screens/screening.png](screens/screening.png) |
+| Sign in | [screens/sign-in.png](screens/sign-in.png) |
 | Register | [screens/register.png](screens/register.png) |
 | History | [screens/history.png](screens/history.png) |
 | History, no scans yet | [screens/history-empty.png](screens/history-empty.png) |
@@ -18,8 +20,6 @@ All values in the pictures are sample data. Band thresholds in the PDF pages are
 | Results, Ask tab | [screens/results-ask.png](screens/results-ask.png) |
 | Results, Details tab | [screens/results-details.png](screens/results-details.png) |
 | Results, overlay viewer | [screens/results-overlay.png](screens/results-overlay.png) |
-
-Still to export: Screening in progress and Sign in.
 
 ## Phone (390 px)
 
