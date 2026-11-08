@@ -1,6 +1,7 @@
 import type { components } from "@/lib/api-types";
 
 export type Health = components["schemas"]["HealthResponse"];
+export type AnalysisPage = components["schemas"]["AnalysisPage"];
 type ErrorBody = components["schemas"]["ErrorResponse"];
 
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/+$/, "");

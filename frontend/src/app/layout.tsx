@@ -1,8 +1,11 @@
+import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono, Montserrat, Playfair_Display } from "next/font/google";
+import { Suspense } from "react";
 
 import { SiteFooter } from "@/components/site-footer";
-import { SiteNav } from "@/components/site-nav";
+import { SiteNav, SiteNavFallback } from "@/components/site-nav";
+import { clerkAppearance, clerkLocalization } from "@/lib/clerk-theme";
 import "./globals.css";
 
 // next/font serves these from our own site, so visitors' browsers never contact Google.
@@ -19,15 +22,20 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html
-      lang="en"
-      className={`${inter.variable} ${playfair.variable} ${jetbrains.variable} ${montserrat.variable} h-full antialiased`}
-    >
-      <body className="flex min-h-full flex-col font-sans">
-        <SiteNav />
-        {children}
-        <SiteFooter />
-      </body>
-    </html>
+    <ClerkProvider appearance={clerkAppearance} localization={clerkLocalization}>
+      <html
+        lang="en"
+        className={`${inter.variable} ${playfair.variable} ${jetbrains.variable} ${montserrat.variable} h-full antialiased`}
+      >
+        <body className="flex min-h-full flex-col font-sans">
+          {/* The nav reads the current URL, which some pages only know at request time. */}
+          <Suspense fallback={<SiteNavFallback />}>
+            <SiteNav />
+          </Suspense>
+          {children}
+          <SiteFooter />
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }

@@ -1,9 +1,11 @@
 import Image from "next/image";
 import Link from "next/link";
+import { Suspense } from "react";
 
+import { AccountCheck } from "@/components/account-check";
 import { HealthBadge } from "@/components/health-badge";
 
-// Temporary home page for F1: the hero from the design plus a backend check. The full landing page comes in F5.
+// Temporary home page: the hero from the design plus the backend and sign-in checks. The full landing page comes in F5.
 export default function Home() {
   return (
     <main className="relative overflow-hidden">
@@ -34,7 +36,13 @@ export default function Home() {
             </Link>
           </div>
           <p className="text-sm text-muted">Research prototype. Not a diagnosis and not for clinical use.</p>
-          <HealthBadge />
+          <div className="flex flex-col items-start gap-2">
+            <HealthBadge />
+            {/* Sign-in state is only known at request time, so this part streams in after the page. */}
+            <Suspense fallback={null}>
+              <AccountCheck />
+            </Suspense>
+          </div>
         </div>
         <Image
           src="/lung-artwork.png"
