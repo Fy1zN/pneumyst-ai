@@ -2,7 +2,7 @@
 
 Working notes for continuing the project in a new session. The [README](../README.md) is the public description and holds the full results; this file records **where things are, how we work, and why decisions were made**.
 
-_Last updated: 9 Nov 2026 · `main` at frontend step F1. **The v1 ML work and the backend are complete; the frontend is being built in steps (F1 done).**_
+_Last updated: 9 Nov 2026 · `main` at frontend step F2. **The v1 ML work and the backend are complete; the frontend is being built in steps (F1 and F2 done).**_
 
 ---
 
@@ -30,8 +30,9 @@ _Last updated: 9 Nov 2026 · `main` at frontend step F1. **The v1 ML work and th
 | Backend step 6b: hardening (9 tests) | ✅ done, run live | `backend/app/core/limits.py`, `backend/app/services/reports.py`, `backend/app/main.py` |
 | Design (Figma: screens, phone, PDF, error states) | ✅ done, exported | `docs/design/` |
 | Frontend F1: Next.js setup, theme, glass nav, footer, typed API client | ✅ done, run live against the backend | `frontend/` |
-| **Frontend F2: Clerk sign-in** | ⏳ **next** | `frontend/` |
-| Frontend F3 to F5, deploy | ⬜ not started | — |
+| Frontend F2: Clerk sign-in, protected pages, account menu, signed API calls | ✅ done, run live (email, Google and GitHub sign-in) | `frontend/src/proxy.ts`, `frontend/src/app/sign-in/`, `frontend/src/lib/use-api.ts` |
+| **Frontend F3: New scan page** | ⏳ **next** | `frontend/` |
+| Frontend F4, F5, deploy | ⬜ not started | — |
 
 ## 2. Environment
 
@@ -233,6 +234,11 @@ The design lives in Figma and is exported to [`docs/design/`](design/README.md) 
 | One `apiFetch` helper turning every error into `ApiError` with the backend's `error_code` and `Retry-After` | Pages pick the user-facing message per code (see `docs/design/boards/error-states.png`) |
 | Brand green, mint and white only; red and amber only for findings and warnings | A result must never read as "all clear" because of a green colour |
 | Glass nav: translucent green bar, sage glass pill for the current page, hover glass | Matches the approved design; real CSS instead of Figma effects |
+| Clerk's prebuilt `<SignIn>` / `<SignUp>` styled through `appearance` and `localization`, not custom forms | Clerk already handles passwords, email codes, social sign-in, bot protection and lockouts; the card is close to the design, not pixel-identical |
+| `src/proxy.ts` (Next.js 16's name for middleware) with `clerkMiddleware`; `/scan`, `/history`, `/results` private | Signed-out visitors go to sign-in and come back to the page they asked for |
+| `useApi()` adds a fresh Clerk session token to every backend call | One place for auth headers; Clerk refreshes the token |
+| Parts that read the URL or the signed-in user sit inside `<Suspense>` (nav, Clerk card, account check) | Cache Components (on by default in Next.js 16) refuses request-time data outside Suspense; each gets a same-size placeholder |
+| Page background `#DDFBE7` instead of the design's `#F7FBF8` | Krish's choice after seeing it live: a clearer mint |
 
 ### Step F1 results (run live)
 - `npm run typecheck`, `npm run lint` and `npm run build` clean (routes `/`, `/scan`, `/history`, `/icon.svg`).
@@ -241,9 +247,16 @@ The design lives in Figma and is exported to [`docs/design/`](design/README.md) 
 - `api:types` needs the backend running first; run it again whenever a backend response changes.
 - The committed `package-lock.json` was written by npm 10.9.2 on Windows and is rejected by `npm ci` on npm 10.9.4 (a hoisting difference for `fdir`). `npm install` works; revisit before adding CI or deploying.
 
+### Step F2 results (run live)
+- Register and sign-in with email code, Google and GitHub; New scan and History redirect signed-out visitors to sign-in and back; avatar menu and sign out work.
+- Backend switched to `AUTH_MODE=clerk`; the home page check shows `Signed in · token accepted · 11 scans saved` (earlier dev-mode scans were saved under the same Clerk user id through `DEV_USER_ID`).
+- `typecheck`, `lint` and `build` clean; sign-in and register pages are partly prerendered (◐), the proxy is active.
+- On a fresh clone, `npm run typecheck` fails on `LayoutProps` until `npm run dev` or `npm run build` has generated the route types once; switch the script to `next typegen && tsc --noEmit` before adding CI.
+- Deploy note: GRADIA and PNEUMYST currently share one Clerk development app; give PNEUMYST its own production Clerk app at deploy.
+
 ### Plan
 1. ✅ **F1:** Next.js setup, theme and fonts, glass nav and phone menu, footer, typed API client, backend health check.
-2. ⏳ **F2:** Clerk sign-in and register styled like the design; the API client sends the session token; `AUTH_MODE=clerk` locally.
-3. ⬜ **F3:** New scan: case form from fixed lists, upload box, screening progress card, every error state.
+2. ✅ **F2:** Clerk sign-in and register styled like the design; the API client sends the session token; `AUTH_MODE=clerk` locally.
+3. ⏳ **F3:** New scan: case form from fixed lists, upload box, screening progress card, every error state.
 4. ⬜ **F4:** Results: scan list, X-ray viewer (side by side and overlay), findings by band, Report, Ask and Details tabs, downloads.
 5. ⬜ **F5:** Landing and History pages, phone layouts, final checks; then deploy.
