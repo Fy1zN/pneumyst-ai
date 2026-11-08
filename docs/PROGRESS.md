@@ -2,7 +2,7 @@
 
 Working notes for continuing the project in a new session. The [README](../README.md) is the public description and holds the full results; this file records **where things are, how we work, and why decisions were made**.
 
-_Last updated: 6 Nov 2026 · `main` at backend step 6a. **The v1 ML work is complete; the backend is being built in steps.**_
+_Last updated: 8 Nov 2026 · `main` at backend step 6b. **The backend is complete; the frontend is next.** **The v1 ML work is complete; the backend is being built in steps.**_
 
 ---
 
@@ -27,7 +27,8 @@ _Last updated: 6 Nov 2026 · `main` at backend step 6a. **The v1 ML work is comp
 | Backend step 5b: PDF report + audit JSON + case context (16 tests) | ✅ done, run live | `backend/app/reporting/`, migration `0003` |
 | Backend step 5c: clinical context + WHO symptom screen + cautions (17 tests) | ✅ done, run live | `backend/app/services/case_notes.py`, `backend/app/reporting/` |
 | Backend step 6a: LangGraph assistant agent `/ask` (8 tests) | ✅ done, run live with Gemini | `backend/app/agent/assistant.py`, `tools.py`, `knowledge.py` |
-| **Backend step 6b: hardening** | ⏳ **next** | — |
+| Backend step 6b: hardening (9 tests) | ✅ done, run live | `backend/app/core/limits.py`, `backend/app/services/reports.py`, `backend/app/main.py` |
+| **Next.js frontend with Clerk sign-in** | ⏳ **next** | `frontend/` |
 | Next.js dashboard, deploy | ⬜ not started | — |
 
 ## 2. Environment
@@ -38,7 +39,7 @@ _Last updated: 6 Nov 2026 · `main` at backend step 6a. **The v1 ML work is comp
 - **Checkpoints (git-ignored, back them up!):** `ml/checkpoints/<run>/best.pt` (selected epoch) and `last.pt` (resume).
   - `tb_densenet121_v1` (superseded), `tb_densenet121_v2` (**current TB**), `nih_densenet121_v1` (**current NIH**)
   - Each run folder also has `history.json`, `val_predictions.csv`, `test_predictions.csv` (and `dev_predictions.csv` for TB v2).
-- **Tests:** `python -m pytest ml/tests backend/tests -q` → 177 passed (56 ML + 121 backend). Tests read PDFs with `pypdf`. A `StarletteDeprecationWarning` about `httpx` is harmless.
+- **Tests:** `python -m pytest ml/tests backend/tests -q` → 186 passed (56 ML + 130 backend). Tests read PDFs with `pypdf`. A `StarletteDeprecationWarning` about `httpx` is harmless.
 - **MySQL 8.0.46** (Windows service `MySQL80`, port 3306, firewall port not opened) + Workbench. Database `pneumyst` (utf8mb4) and user `pneumyst@localhost` with rights on that database only. `.env` holds `DATABASE_URL` (password of letters and digits) and `DEV_USER_ID=local-dev`.
 - **Clerk:** development instance `endless-adder-4170`. `.env` holds `CLERK_SECRET_KEY`, `CLERK_ISSUER`, `CLERK_JWKS_URL`, `CLERK_AUTHORIZED_PARTIES`. `AUTH_MODE=dev` for daily local work (no token needed), `AUTH_MODE=clerk` to test auth; never `dev` when deployed. The publishable key goes in `frontend/.env.local` later.
 - **LLM:** Gemini key from AI Studio (personal account, free tier; never the company OpenAI key). `.env`: `LLM_PROVIDER=gemini`, `LLM_MODEL=gemini-3.5-flash`, `LLM_FALLBACK_MODEL=gemini-3.5-flash-lite`, `LLM_THINKING_LEVEL=low`, `LLM_TIMEOUT_S=30`. Packages: `langgraph`, `langchain-google-genai`, `langchain-openai`. The key was visible in a screenshot once and rotated.
@@ -198,12 +199,20 @@ Notebook tip: after a restart, only the setup, gallery (`boxes = pd.read_csv(...
 | Questions and answers are not stored | Questions are free text and may contain personal details; only tools used and the outcome are audited. Stateless, one question at a time. |
 | No template answer when the LLM fails (503 instead) | A made-up fallback answer would be worse than none. |
 
+### Step 6b results (run live)
+- Version 0.9.0. `/health`: status ok, cuda, both models, database ok, storage and LLM configured, provider gemini, auth mode dev.
+- Background report: analyze saved at 13:56:16.300, the Gemini call started 47 ms later on its own and returned at 13:56:21.6; opening the report later was instant with `source: llm`. Background log lines show `[-]` as request id because they belong to no request.
+- `X-Request-ID` on every response and in the log line of that request.
+- Rate limits are in memory (one server); multiple server processes at deploy would need Redis.
+
 ### Plan
 1. ✅ API skeleton
 2. ✅ **MySQL + Alembic:** tables `users`, `analyses` (findings/stages/errors/timings/preprocess/models as JSON; `heatmap_keys`, `report`, `report_source` filled later), `audit_events`. `/analyze` saves (`persistence: saved/not_saved`, `STORAGE_FAILED` never loses results); `GET /analyses` (paged), `GET /analyses/{id}`, `DELETE /analyses/{id}`; other users' analyses return 404. Tests on in-memory SQLite.
 3. ✅ **Clerk JWT auth:** the token's user id scopes every query; `AUTH_MODE=dev` keeps `DEV_USER_ID` for local work.
 4. ✅ **Image storage:** 320 px image + shown overlays on local disk, HMAC-signed 5-minute links, delete cleanup. R2 comes at deploy.
 5. ✅ (5a) LangGraph report workflow: draft, checks, one retry, template and fallback model, stored once. ✅ (5b) PDF report, audit JSON, case context. ✅ (5c) clinical context, WHO four-symptom screen and cautions, shown side by side and never combined with the scores.
-6. ✅ (6a) LangGraph assistant `ask` endpoint. Next (6b): hardening (startup warm-up, total LLM deadline, background report writing, rate limits, health details, full test list).
+6. ✅ (6a) LangGraph assistant `ask` endpoint. ✅ (6b) hardening: warm-up, background reports, deadlines, rate limits, health details, request IDs, test coverage table.
+
+**Next: frontend.** Next.js with Clerk sign-in, upload with case context, results with heatmap viewer and cautions, history, report and PDF download, assistant chat (with a "don't type personal details" note). Downloads fetch with the token and open as a blob; images use the signed links. Then deploy (R2 storage, GPU or background heatmaps, Redis if several server processes).
 
 The backend machine needs `ml/checkpoints/tb_densenet121_v2/best.pt` and `ml/checkpoints/nih_densenet121_v1/best.pt`. CPU deployment makes heatmaps slow (30–60 s); decide at deploy time (GPU host, background heatmaps, or coarser grid).
