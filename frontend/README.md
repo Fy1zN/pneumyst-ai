@@ -1,36 +1,37 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# PNEUMYST AI frontend
 
-## Getting Started
+Next.js 16 (App Router, TypeScript) and Tailwind CSS 4. The design it follows is in [`../docs/design/`](../docs/design/README.md).
 
-First, run the development server:
+## Run
 
-```bash
+Start the backend first (see the main [README](../README.md), step 11), then:
+
+```powershell
+Copy-Item .env.example .env.local   # NEXT_PUBLIC_API_URL=http://localhost:8000
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Commands
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Command | What it does |
+|---|---|
+| `npm run dev` | Development server |
+| `npm run api:types` | Regenerates `src/lib/api-types.ts` from the running backend's `/openapi.json` |
+| `npm run typecheck` | TypeScript check |
+| `npm run lint` | ESLint |
+| `npm run build` | Production build |
 
-## Learn More
+## Layout
 
-To learn more about Next.js, take a look at the following resources:
+| Path | Contents |
+|---|---|
+| `src/app/globals.css` | Colour and font tokens from the design, the `label` and `glass-active` styles |
+| `src/app/layout.tsx` | Fonts, glass nav and footer around every page |
+| `src/components/` | Nav, footer, logo and shared parts |
+| `src/lib/api.ts` | The one place that calls the backend; errors become `ApiError` with the backend's `error_code` |
+| `src/lib/api-types.ts` | Generated, do not edit by hand |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`NEXT_PUBLIC_` values are built into the website and visible to anyone, so never put a secret in `.env.local`.

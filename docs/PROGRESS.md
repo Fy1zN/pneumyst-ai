@@ -2,7 +2,7 @@
 
 Working notes for continuing the project in a new session. The [README](../README.md) is the public description and holds the full results; this file records **where things are, how we work, and why decisions were made**.
 
-_Last updated: 8 Nov 2026 · `main` at backend step 6b. **The backend is complete; the frontend is next.** **The v1 ML work is complete; the backend is being built in steps.**_
+_Last updated: 9 Nov 2026 · `main` at frontend step F1. **The v1 ML work and the backend are complete; the frontend is being built in steps (F1 done).**_
 
 ---
 
@@ -28,8 +28,10 @@ _Last updated: 8 Nov 2026 · `main` at backend step 6b. **The backend is complet
 | Backend step 5c: clinical context + WHO symptom screen + cautions (17 tests) | ✅ done, run live | `backend/app/services/case_notes.py`, `backend/app/reporting/` |
 | Backend step 6a: LangGraph assistant agent `/ask` (8 tests) | ✅ done, run live with Gemini | `backend/app/agent/assistant.py`, `tools.py`, `knowledge.py` |
 | Backend step 6b: hardening (9 tests) | ✅ done, run live | `backend/app/core/limits.py`, `backend/app/services/reports.py`, `backend/app/main.py` |
-| **Next.js frontend with Clerk sign-in** | ⏳ **next** | `frontend/` |
-| Next.js dashboard, deploy | ⬜ not started | — |
+| Design (Figma: screens, phone, PDF, error states) | ✅ done, exported | `docs/design/` |
+| Frontend F1: Next.js setup, theme, glass nav, footer, typed API client | ✅ done, run live against the backend | `frontend/` |
+| **Frontend F2: Clerk sign-in** | ⏳ **next** | `frontend/` |
+| Frontend F3 to F5, deploy | ⬜ not started | — |
 
 ## 2. Environment
 
@@ -213,6 +215,35 @@ Notebook tip: after a restart, only the setup, gallery (`boxes = pd.read_csv(...
 5. ✅ (5a) LangGraph report workflow: draft, checks, one retry, template and fallback model, stored once. ✅ (5b) PDF report, audit JSON, case context. ✅ (5c) clinical context, WHO four-symptom screen and cautions, shown side by side and never combined with the scores.
 6. ✅ (6a) LangGraph assistant `ask` endpoint. ✅ (6b) hardening: warm-up, background reports, deadlines, rate limits, health details, request IDs, test coverage table.
 
-**Next: frontend.** Next.js with Clerk sign-in, upload with case context, results with heatmap viewer and cautions, history, report and PDF download, assistant chat (with a "don't type personal details" note). Downloads fetch with the token and open as a blob; images use the signed links. Then deploy (R2 storage, GPU or background heatmaps, Redis if several server processes).
+**Frontend (see section 9).** Next.js with Clerk sign-in, upload with case context, results with heatmap viewer and cautions, history, report and PDF download, assistant chat (with a "don't type personal details" note). Downloads fetch with the token and open as a blob; images use the signed links. Then deploy (R2 storage, GPU or background heatmaps, Redis if several server processes).
 
 The backend machine needs `ml/checkpoints/tb_densenet121_v2/best.pt` and `ml/checkpoints/nih_densenet121_v1/best.pt`. CPU deployment makes heatmaps slow (30–60 s); decide at deploy time (GPU host, background heatmaps, or coarser grid).
+
+## 9. Frontend
+
+The design lives in Figma and is exported to [`docs/design/`](design/README.md) (screens, phone layouts, PDF pages, error states, colour and font tokens). The frontend is built from those pictures in steps.
+
+### Decisions
+| Decision | Why |
+|---|---|
+| Next.js 16 (App Router, TypeScript), React 19, Tailwind CSS 4 | Server and client components in one app, typed end to end, styling straight from the design tokens |
+| Design tokens as Tailwind theme colours (`brand-green`, `band-likely`, ...) | One place to change a colour; the page code reads like the design |
+| Fonts through `next/font` (Inter, Playfair Display italic, JetBrains Mono, Montserrat) | Served from our own site, so visitors' browsers never contact Google |
+| API types generated from the backend's `/openapi.json` (`npm run api:types`, file committed) | A field the backend does not send is a compile error, and the site builds without the backend running |
+| One `apiFetch` helper turning every error into `ApiError` with the backend's `error_code` and `Retry-After` | Pages pick the user-facing message per code (see `docs/design/boards/error-states.png`) |
+| Brand green, mint and white only; red and amber only for findings and warnings | A result must never read as "all clear" because of a green colour |
+| Glass nav: translucent green bar, sage glass pill for the current page, hover glass | Matches the approved design; real CSS instead of Figma effects |
+
+### Step F1 results (run live)
+- `npm run typecheck`, `npm run lint` and `npm run build` clean (routes `/`, `/scan`, `/history`, `/icon.svg`).
+- Home page against the real backend: badge shows `Backend: ok · cuda · v0.9.0 · database ok · llm configured`; with the backend stopped it shows "Backend not reachable" instead of crashing.
+- Nav pill moves between Home, New scan and History; the phone menu opens and closes itself after navigating; footer GitHub and LinkedIn links open the profiles.
+- `api:types` needs the backend running first; run it again whenever a backend response changes.
+- The committed `package-lock.json` was written by npm 10.9.2 on Windows and is rejected by `npm ci` on npm 10.9.4 (a hoisting difference for `fdir`). `npm install` works; revisit before adding CI or deploying.
+
+### Plan
+1. ✅ **F1:** Next.js setup, theme and fonts, glass nav and phone menu, footer, typed API client, backend health check.
+2. ⏳ **F2:** Clerk sign-in and register styled like the design; the API client sends the session token; `AUTH_MODE=clerk` locally.
+3. ⬜ **F3:** New scan: case form from fixed lists, upload box, screening progress card, every error state.
+4. ⬜ **F4:** Results: scan list, X-ray viewer (side by side and overlay), findings by band, Report, Ask and Details tabs, downloads.
+5. ⬜ **F5:** Landing and History pages, phone layouts, final checks; then deploy.
