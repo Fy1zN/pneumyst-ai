@@ -876,6 +876,18 @@ Every endpoint except `/health` requires a valid Clerk session token: `Authoriza
 
 Internal file paths and storage keys are never exposed to the frontend.
 
+### Running under load
+
+| Behaviour | Detail | Setting (`.env`) |
+|---|---|---|
+| Warm-up | One screening of a synthetic image at startup, so the first real request is not slower | `WARMUP=true` |
+| Background reports | The summary is written right after `/analyze` saves; opening the report later is instant. A request that arrives while the job runs waits for that job instead of calling the LLM again | `BACKGROUND_REPORTS=true` |
+| Report deadline | Past the deadline the caller gets the template at once (not saved); the job keeps running and its summary is saved for the next request | `REPORT_DEADLINE_S=45` |
+| Assistant deadline | Past the deadline `/ask` returns `503 ASSISTANT_UNAVAILABLE` | `ASK_DEADLINE_S=60` |
+| Rate limits | Per user over a sliding hour; over the limit returns `429 RATE_LIMITED` with `Retry-After`. Counts are kept in memory, which suits one server; several server processes would need a shared store such as Redis | `RATE_ANALYZE_PER_HOUR=30`, `RATE_ASK_PER_HOUR=20` |
+| Request IDs | Every response carries `X-Request-ID`, and the same id appears in each log line of that request; a safe id sent by the client is kept | — |
+| Health | `/health` reports version, device, models, database, storage, LLM provider and auth mode, never keys or URLs | — |
+
 ---
 
 ## 📏 Evaluation protocol
@@ -925,10 +937,10 @@ gantt
     MySQL + Alembic + history    :done, b2, 2026-10-27, 1d
     Clerk authentication         :done, b3, 2026-10-29, 1d
     Image storage + signed links :done, b4, 2026-10-30, 1d
-    Report + audit + agent       :b5, after b4, 2d
-    Assistant + hardening        :b6, after b5, 1d
+    Report + audit + agent       :done, b5, 2026-10-31, 6d
+    Assistant + hardening        :done, b6, 2026-11-06, 3d
     section Frontend and release
-    Next.js + login + history    :c1, after b6, 3d
+    Next.js + login + history    :c1, 2026-11-09, 3d
     Tests and docs               :c2, after c1, 1d
     Deploy                       :c3, after c2, 1d
     v1.0                         :milestone, after c3, 0d
@@ -957,7 +969,8 @@ gantt
 | Explanation cache and fallbacks | ⬜ Not started |
 | LangGraph report workflow (draft, guardrails, retry, template and fallback model) | ✅ Verified in running app (Gemini; 26 report tests) |
 | Assistant agent (LangGraph, tool calling, read-only tools) | ✅ Verified in running app (Gemini; 8 assistant tests) |
-| FastAPI endpoints | ✅ Verified in running app (health, models, analyze, history, report, PDF, audit JSON, ask, files); hardening next |
+| FastAPI endpoints | ✅ Verified in running app (health, models, analyze, history, report, PDF, audit JSON, ask, files) |
+| Hardening (warm-up, background reports, deadlines, rate limits, request IDs) | ✅ Verified in running app (9 tests) |
 | Clerk authentication | ✅ Tested (19 auth tests; live 401 checks; real sign-in comes with the frontend) |
 | MySQL schema and migrations | ✅ Verified in running app (Alembic `0001` on MySQL 8.0) |
 | Image storage (local) + signed links | ✅ Verified in running app (16 storage tests) |
@@ -965,11 +978,32 @@ gantt
 | Screening report (PDF) + audit record (JSON) + de-identified case context | ✅ Verified in running app (16 export tests) |
 | Clinical context, WHO symptom screen and model cautions (side by side, never combined) | ✅ Verified in running app (17 tests) |
 | Next.js dashboard and history | ⬜ Not started |
-| Test suite (18 required cases + auth isolation + report checks) | ⬜ Not started |
+| Test suite | ✅ 186 tests (56 ML + 130 backend); see [What the tests cover](#what-the-tests-cover) |
 | Deployment | ⬜ Not started |
 | Localization (optional) | ⬜ Not started |
 
 Statuses move through **Not started → In progress → Implemented → Tested → Verified in running app**. A feature is never marked complete just because code exists.
+
+### What the tests cover
+
+`python -m pytest ml/tests backend/tests -q` runs everything without checkpoints, a GPU, MySQL or an LLM key: backend tests use tiny toy models, in-memory SQLite and scripted fake LLMs.
+
+| Area | File | Tests | Checks |
+|---|---|:-:|---|
+| Data and EDA | `ml/tests/test_manifests.py`, `test_eda*.py` | 7 | manifests, leak and duplicate checks, EDA probes |
+| Preprocessing | `ml/tests/test_preprocess.py` | 7 | crop, resize and normalisation match training |
+| Training and calibration | `ml/tests/test_training.py`, `test_calibration.py` | 20 | augmentation, loss, checkpoints, Platt calibration, bands |
+| Heatmaps | `ml/tests/test_occlusion.py` | 10 | occlusion maps, out-of-memory fallback, display rules |
+| Inference utility | `ml/tests/test_screener.py` | 12 | input checks, partial failures, heatmap gating, parity with training |
+| API basics | `backend/tests/test_api.py` | 14 | health, models, analyze, bad files, size limit, busy queue, hidden crashes |
+| History and database | `backend/tests/test_analyses.py` | 9 | saving, paging, deletion, user isolation, database failures, migrations match models |
+| Authentication | `backend/tests/test_auth.py` | 19 | Clerk tokens (expired, wrong issuer, wrong party, bad signature), 401 and 503, dev mode refusal |
+| Image storage | `backend/tests/test_storage.py` | 16 | stored PNGs without metadata, signed and expiring links, tampering, path traversal, deletion |
+| Report workflow | `backend/tests/test_report.py` | 26 | facts, each guardrail, LangGraph retry and fallback, fallback model, caching, temporary failures |
+| PDF, audit record, case context | `backend/tests/test_exports.py` | 12 | PDF contents and download, audit record without keys, case context validation, never sent to the LLM |
+| Clinical context | `backend/tests/test_case_notes.py` | 17 | WHO screen, cautions, scores identical with and without context, PDF side-by-side box |
+| Assistant agent | `backend/tests/test_assistant.py` | 8 | tool routing, user scoping inside tools, refusals, step limit, 503, nothing stored |
+| Hardening | `backend/tests/test_hardening.py` | 9 | warm-up, background reports, one job per analysis, deadlines, rate limits, health, request IDs |
 
 **Future model work:** TB v3 (chest-X-ray-pretrained weights after checking their training data, or multi-hospital training with balanced sampling) to close the Montgomery gap; Hernia validation; higher resolution for nodules; external radiologist-labelled tests (VinDr-CXR, CheXpert).
 
