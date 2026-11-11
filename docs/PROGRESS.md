@@ -2,7 +2,7 @@
 
 Working notes for continuing the project in a new session. The [README](../README.md) is the public description and holds the full results; this file records **where things are, how we work, and why decisions were made**.
 
-_Last updated: 9 Nov 2026 · `main` at frontend step F2. **The v1 ML work and the backend are complete; the frontend is being built in steps (F1 and F2 done).**_
+_Last updated: 12 Nov 2026 · `main` at frontend step F3. **The v1 ML work and the backend are complete; the frontend is being built in steps (F1 to F3 done).**_
 
 ---
 
@@ -31,8 +31,9 @@ _Last updated: 9 Nov 2026 · `main` at frontend step F2. **The v1 ML work and th
 | Design (Figma: screens, phone, PDF, error states) | ✅ done, exported | `docs/design/` |
 | Frontend F1: Next.js setup, theme, glass nav, footer, typed API client | ✅ done, run live against the backend | `frontend/` |
 | Frontend F2: Clerk sign-in, protected pages, account menu, signed API calls | ✅ done, run live (email, Google and GitHub sign-in) | `frontend/src/proxy.ts`, `frontend/src/app/sign-in/`, `frontend/src/lib/use-api.ts` |
-| **Frontend F3: New scan page** | ⏳ **next** | `frontend/` |
-| Frontend F4, F5, deploy | ⬜ not started | — |
+| Frontend F3: New scan page (case form, upload, progress card, every error state) | ✅ done, browser-tested against a test backend | `frontend/src/components/scan/`, `frontend/src/lib/case-fields.ts`, `frontend/src/lib/scan-errors.ts` |
+| **Frontend F4: results page** | ⏳ **next** | `frontend/` |
+| Frontend F5, deploy | ⬜ not started | — |
 
 ## 2. Environment
 
@@ -238,7 +239,11 @@ The design lives in Figma and is exported to [`docs/design/`](design/README.md) 
 | `src/proxy.ts` (Next.js 16's name for middleware) with `clerkMiddleware`; `/scan`, `/history`, `/results` private | Signed-out visitors go to sign-in and come back to the page they asked for |
 | `useApi()` adds a fresh Clerk session token to every backend call | One place for auth headers; Clerk refreshes the token |
 | Parts that read the URL or the signed-in user sit inside `<Suspense>` (nav, Clerk card, account check) | Cache Components (on by default in Next.js 16) refuses request-time data outside Suspense; each gets a same-size placeholder |
-| Page background `#DDFBE7` instead of the design's `#F7FBF8` | Krish's choice after seeing it live: a clearer mint |
+| Case form choices typed against the generated API types; "Not asked" is sent as nothing | A choice the backend does not accept fails to compile, and "not asked" never turns into "no" for the WHO screen |
+| Browser checks before upload (PNG/JPEG, 20 MB) on top of the backend's checks | Obvious mistakes cost no request; the backend stays the authority |
+| Progress steps advance on typical timings and jump to done when the single response arrives | The backend answers once; real step-by-step progress would need streaming from the backend |
+| Every backend error mapped to the error-board wording (`scan-errors.ts`); the form keeps its answers | The user always sees what happened and what to do next, never a raw code |
+| Glass panels at 55% white with a 6px blur over the lungs | Matches the Figma design; the dropdowns keep solid white boxes so they stay readable |
 
 ### Step F1 results (run live)
 - `npm run typecheck`, `npm run lint` and `npm run build` clean (routes `/`, `/scan`, `/history`, `/icon.svg`).
@@ -254,9 +259,13 @@ The design lives in Figma and is exported to [`docs/design/`](design/README.md) 
 - On a fresh clone, `npm run typecheck` fails on `LayoutProps` until `npm run dev` or `npm run build` has generated the route types once; switch the script to `next typegen && tsc --noEmit` before adding CI.
 - Deploy note: GRADIA and PNEUMYST currently share one Clerk development app; give PNEUMYST its own production Clerk app at deploy.
 
+### Step F3 results
+- Browser-tested in the sandbox against a test backend that returns every outcome: a name-like case number is blocked with a hint; a PDF and a 21 MB file are stopped before upload; Cough duration appears only after Cough is "Yes"; a blank image shows "This image looks blank." in the upload box with the form kept; 429 shows the amber banner with the minutes from `Retry-After`; 503 shows "Screening could not run" with the reference; 401 shows the session card; not saved shows the flagged findings; success shows the progress card and opens `/results/{id}`; heatmaps off sends `explain=false` and drops that step; only the answered fields are sent, with the Bearer token.
+- `typecheck`, `lint` and `build` clean on the pushed code; `/results/[id]` is a temporary page (case number, time, flagged findings, saved details) until F4.
+
 ### Plan
 1. ✅ **F1:** Next.js setup, theme and fonts, glass nav and phone menu, footer, typed API client, backend health check.
 2. ✅ **F2:** Clerk sign-in and register styled like the design; the API client sends the session token; `AUTH_MODE=clerk` locally.
-3. ⏳ **F3:** New scan: case form from fixed lists, upload box, screening progress card, every error state.
-4. ⬜ **F4:** Results: scan list, X-ray viewer (side by side and overlay), findings by band, Report, Ask and Details tabs, downloads.
+3. ✅ **F3:** New scan: case form from fixed lists, upload box, screening progress card, every error state.
+4. ⏳ **F4:** Results: scan list, X-ray viewer (side by side and overlay), findings by band, Report, Ask and Details tabs, downloads.
 5. ⬜ **F5:** Landing and History pages, phone layouts, final checks; then deploy.

@@ -53,7 +53,7 @@ The report pages restyle what `backend/app/reporting/pdf.py` already writes. The
 | brand/green-deep | `#14532D` | small text on mint, active pill text |
 | brand/mint | `#ECFDF3` | soft backgrounds, selected rows |
 | brand/mint-strong | `#BBF7D0` | borders on mint, hover states |
-| surface/page | `#F7FBF8` | page background (the site now uses a clearer mint, `#DDFBE7`) |
+| surface/page | `#F7FBF8` | page background |
 | surface/card | `#FFFFFF` | cards and panels |
 | surface/viewer | `#0B1220` | dark X-ray viewer |
 | border/default | `#E2E8F0` | card and field borders |

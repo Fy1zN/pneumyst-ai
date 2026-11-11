@@ -35,6 +35,9 @@ Open `http://localhost:3000`.
 | `src/lib/api.ts` | The one place that calls the backend; errors become `ApiError` with the backend's `error_code` |
 | `src/lib/use-api.ts` | `useApi()`: `apiFetch` with the signed-in user's Clerk token |
 | `src/lib/clerk-theme.ts` | Styling and wording for Clerk's sign-in and register cards |
+| `src/components/scan/` | New scan page: case form, upload box, progress and error cards |
+| `src/lib/case-fields.ts` | The 19 case fields and their choices, typed against the API |
+| `src/lib/scan-errors.ts` | Backend error codes turned into the wording users see |
 | `src/lib/api-types.ts` | Generated, do not edit by hand |
 
 `NEXT_PUBLIC_` values are built into the website and visible to anyone. `CLERK_SECRET_KEY` stays server-side; `.env.local` is git-ignored and must never be committed.

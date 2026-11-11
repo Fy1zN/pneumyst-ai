@@ -990,7 +990,7 @@ gantt
 | Screening report (PDF) + audit record (JSON) + de-identified case context | ✅ Verified in running app (16 export tests) |
 | Clinical context, WHO symptom screen and model cautions (side by side, never combined) | ✅ Verified in running app (17 tests) |
 | Design (Figma, exported) | ✅ Implemented ([`docs/design/`](docs/design/README.md)) |
-| Next.js frontend | 🟨 In progress (verified in running app: F1 theme, glass nav, footer, typed API client; F2 Clerk sign-in, protected pages, signed API calls; scan, results and history next) |
+| Next.js frontend | 🟨 In progress (verified in running app: F1 theme, glass nav, footer, typed API client; F2 Clerk sign-in, protected pages, signed API calls; F3 New scan page with every error state; results and history next) |
 | Test suite | ✅ 186 tests (56 ML + 130 backend); see [What the tests cover](#what-the-tests-cover) |
 | Deployment | ⬜ Not started |
 | Localization (optional) | ⬜ Not started |
