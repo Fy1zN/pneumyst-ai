@@ -37,16 +37,27 @@ export function groupFindings(findings: Finding[]) {
   };
 }
 
-// Pipeline stage names from the backend, as people would say them.
-const STAGES: Record<string, string> = {
-  input: "checking the image",
-  tb: "the tuberculosis model",
-  nih: "the 14-finding model",
-  "explain:tb": "heatmaps for the tuberculosis model",
-  "explain:nih": "heatmaps for the 14-finding model",
-  images: "saving the images",
-};
+/** Backend model run names, e.g. "tb_densenet121_v2", in plain words. */
+export function modelName(name: string): string {
+  if (name.startsWith("tb")) return "Tuberculosis model";
+  if (name.startsWith("nih")) return "14-finding model";
+  return name;
+}
 
+/** "tb_densenet121_v2" -> "DenseNet-121, v2". */
+export function modelVersion(name: string): string {
+  const match = /densenet(\d+)_v(\d+)/i.exec(name);
+  return match ? `DenseNet-${match[1]}, v${match[2]}` : name;
+}
+
+/** Pipeline stage names from the backend ("input", a model run name, "explain:<run>", "images"), as people would say them. */
 export function stageName(stage: string): string {
-  return STAGES[stage] ?? stage;
+  if (stage === "input") return "checking the image";
+  if (stage === "images") return "saving the images";
+  if (stage.startsWith("explain:")) return `heatmaps for the ${modelName(stage.slice(8)).toLowerCase()}`;
+  return `the ${modelName(stage).toLowerCase()}`;
+}
+
+export function duration(ms: number): string {
+  return ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`;
 }

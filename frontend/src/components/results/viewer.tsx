@@ -6,6 +6,7 @@ import type { Analysis, Finding } from "@/lib/api";
 import { BAND_DOT, when, type Band } from "@/lib/format";
 
 type Mode = "side" | "overlay";
+type Pane = "xray" | "heat";
 
 function noHeatmapReason(findings: Finding[]): string {
   if (findings.some((f) => f.heatmap === "not_requested")) return "Heatmaps were turned off for this scan.";
@@ -36,6 +37,8 @@ export function Viewer({ analysis, onLinksExpired }: { analysis: Analysis; onLin
   const [mode, setMode] = useState<Mode>("side");
   const [chosen, setChosen] = useState<string | null>(withMaps[0]?.finding ?? null);
   const [opacity, setOpacity] = useState(70);
+  // Phones show one picture at a time in side-by-side mode; wider screens always show both.
+  const [pane, setPane] = useState<Pane>("heat");
   const current = withMaps.find((f) => f.finding === chosen) ?? withMaps[0] ?? null;
   const heatSrc = current && links ? links.heatmaps[current.finding] : null;
   const caseNumber = analysis.case_context?.case_number;
@@ -55,7 +58,7 @@ export function Viewer({ analysis, onLinksExpired }: { analysis: Analysis; onLin
           </h1>
         </div>
         {heatSrc && (
-          <div role="tablist" aria-label="View mode" className="flex rounded-lg border border-line bg-page p-0.5">
+          <div role="tablist" aria-label="View mode" className="hidden rounded-lg border border-line bg-page p-0.5 sm:flex">
             {(["side", "overlay"] as const).map((m) => (
               <button
                 key={m}
@@ -72,16 +75,30 @@ export function Viewer({ analysis, onLinksExpired }: { analysis: Analysis; onLin
         )}
       </div>
 
-      <div className="rounded-xl bg-viewer p-4">
+      <div className="rounded-xl bg-viewer p-3 sm:p-4">
         {!links ? (
           <p className="py-24 text-center text-sm text-white/70">The images were not stored for this scan. The scores below are complete.</p>
         ) : heatSrc && current && mode === "side" ? (
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="relative aspect-square overflow-hidden rounded-lg bg-black">
+            <div role="tablist" aria-label="Picture" className="flex rounded-lg bg-white/10 p-1 sm:hidden">
+              {(["xray", "heat"] as const).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  role="tab"
+                  aria-selected={pane === p}
+                  onClick={() => setPane(p)}
+                  className={`label flex-1 rounded-md py-2 text-[0.5625rem] ${pane === p ? "bg-white font-bold text-brand-green-deep" : "text-white/70"}`}
+                >
+                  {p === "xray" ? "X-ray" : "Heatmap"}
+                </button>
+              ))}
+            </div>
+            <div className={`relative aspect-square overflow-hidden rounded-lg bg-black ${pane === "heat" ? "hidden sm:block" : ""}`}>
               <Picture src={links.image} alt="Chest X-ray as analysed" onExpired={onLinksExpired} />
               <Tag>Original · 320 px</Tag>
             </div>
-            <div className="relative aspect-square overflow-hidden rounded-lg bg-black">
+            <div className={`relative aspect-square overflow-hidden rounded-lg bg-black ${pane === "xray" ? "hidden sm:block" : ""}`}>
               <Picture src={heatSrc} alt={`Heatmap for ${current.display_name}`} onExpired={onLinksExpired} />
               <Tag>Occlusion · {current.display_name}</Tag>
             </div>

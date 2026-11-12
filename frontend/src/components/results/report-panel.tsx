@@ -5,6 +5,9 @@ import { useEffect, useState } from "react";
 import { ApiError, type Analysis, type Report } from "@/lib/api";
 import { useApi, useDownload } from "@/lib/use-api";
 
+import { AskTab } from "./ask-tab";
+import { DetailsTab } from "./details-tab";
+
 type Tab = "report" | "ask" | "details";
 type ReportState = { kind: "loading" } | { kind: "ready"; report: Report } | { kind: "error"; message: string };
 
@@ -147,30 +150,40 @@ function ReportTab({ analysis }: { analysis: Analysis }) {
   );
 }
 
-/** Right-hand panel with the Report, Ask and Details tabs. Ask and Details are built in step F4b. */
+const TABS = ["report", "ask", "details"] as const;
+
+/** Right-hand panel with the Report, Ask and Details tabs. All three stay mounted, so a conversation survives switching tabs. */
 export function ReportPanel({ analysis }: { analysis: Analysis }) {
   const [tab, setTab] = useState<Tab>("report");
   return (
     <aside aria-label="Report" className="flex flex-col gap-5 rounded-2xl border border-line bg-white p-5">
       <div role="tablist" aria-label="Result tabs" className="flex gap-5 border-b border-line">
-        {(["report", "ask", "details"] as const).map((t) => (
+        {TABS.map((t) => (
           <button
             key={t}
+            id={`tab-${t}`}
             type="button"
             role="tab"
             aria-selected={tab === t}
+            aria-controls={`panel-${t}`}
             onClick={() => setTab(t)}
-            className={`label -mb-px border-b-2 pt-1 pb-2.5 text-[0.625rem] ${tab === t ? "border-brand-green font-bold text-brand-green-deep" : "border-transparent text-muted"}`}
+            className={`label -mb-px border-b-2 pt-1 pb-2.5 text-[0.625rem] ${tab === t ? "border-brand-green font-bold text-brand-green-deep" : "border-transparent text-muted hover:text-brand-green-deep"}`}
           >
             {t}
           </button>
         ))}
       </div>
-      {tab === "report" ? (
-        <ReportTab key={analysis.id} analysis={analysis} />
-      ) : (
-        <p className="text-sm text-muted">The {tab === "ask" ? "Ask" : "Details"} tab is built in the next step.</p>
-      )}
+      {TABS.map((t) => (
+        <div key={t} id={`panel-${t}`} role="tabpanel" aria-labelledby={`tab-${t}`} hidden={tab !== t} className="flex flex-1 flex-col">
+          {t === "report" ? (
+            <ReportTab key={analysis.id} analysis={analysis} />
+          ) : t === "ask" ? (
+            <AskTab key={analysis.id} analysisId={analysis.id} />
+          ) : (
+            <DetailsTab key={analysis.id} analysis={analysis} />
+          )}
+        </div>
+      ))}
     </aside>
   );
 }

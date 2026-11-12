@@ -6,6 +6,7 @@ export type Analysis = components["schemas"]["AnalysisResponse"];
 export type Finding = components["schemas"]["Finding"];
 export type Report = components["schemas"]["ReportResponse"];
 export type AnalysisSummary = components["schemas"]["AnalysisSummary"];
+export type AskAnswer = components["schemas"]["AskResponse"];
 type ErrorBody = components["schemas"]["ErrorResponse"];
 
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/+$/, "");
@@ -52,7 +53,9 @@ async function request(path: string, { token, headers, ...init }: Options): Prom
 }
 
 export async function apiFetch<T>(path: string, options: Options = {}): Promise<T> {
-  return (await (await request(path, options)).json()) as T;
+  const response = await request(path, options);
+  // 204 No Content (a deletion) has no body to parse.
+  return (response.status === 204 ? undefined : await response.json()) as T;
 }
 
 /** A file from the backend (PDF, audit record) with the name the backend suggests. */
