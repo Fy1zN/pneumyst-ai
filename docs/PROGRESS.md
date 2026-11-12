@@ -2,7 +2,7 @@
 
 Working notes for continuing the project in a new session. The [README](../README.md) is the public description and holds the full results; this file records **where things are, how we work, and why decisions were made**.
 
-_Last updated: 12 Nov 2026 · `main` at frontend step F3. **The v1 ML work and the backend are complete; the frontend is being built in steps (F1 to F3 done).**_
+_Last updated: 12 Nov 2026 · `main` at frontend step F4a. **The v1 ML work and the backend are complete; the frontend is being built in steps (F1 to F4a done).**_
 
 ---
 
@@ -32,7 +32,8 @@ _Last updated: 12 Nov 2026 · `main` at frontend step F3. **The v1 ML work and t
 | Frontend F1: Next.js setup, theme, glass nav, footer, typed API client | ✅ done, run live against the backend | `frontend/` |
 | Frontend F2: Clerk sign-in, protected pages, account menu, signed API calls | ✅ done, run live (email, Google and GitHub sign-in) | `frontend/src/proxy.ts`, `frontend/src/app/sign-in/`, `frontend/src/lib/use-api.ts` |
 | Frontend F3: New scan page (case form, upload, progress card, every error state) | ✅ done, browser-tested against a test backend | `frontend/src/components/scan/`, `frontend/src/lib/case-fields.ts`, `frontend/src/lib/scan-errors.ts` |
-| **Frontend F4: results page** | ⏳ **next** | `frontend/` |
+| Frontend F4a: results page (scan list, X-ray viewer, findings by band, Report tab, downloads) | ✅ done, run live on a real scan | `frontend/src/components/results/`, `frontend/src/lib/format.ts` |
+| **Frontend F4b: Ask and Details tabs, phone layout of results** | ⏳ **next** | `frontend/src/components/results/` |
 | Frontend F5, deploy | ⬜ not started | — |
 
 ## 2. Environment
@@ -262,10 +263,19 @@ The design lives in Figma and is exported to [`docs/design/`](design/README.md) 
 ### Step F3 results
 - Browser-tested in the sandbox against a test backend that returns every outcome: a name-like case number is blocked with a hint; a PDF and a 21 MB file are stopped before upload; Cough duration appears only after Cough is "Yes"; a blank image shows "This image looks blank." in the upload box with the form kept; 429 shows the amber banner with the minutes from `Retry-After`; 503 shows "Screening could not run" with the reference; 401 shows the session card; not saved shows the flagged findings; success shows the progress card and opens `/results/{id}`; heatmaps off sends `explain=false` and drops that step; only the answered fields are sent, with the Bearer token.
 - `typecheck`, `lint` and `build` clean on the pushed code; `/results/[id]` is a temporary page (case number, time, flagged findings, saved details) until F4.
+- Run live: a real scan from the New scan page was saved and opened on `/results/{id}`.
+
+### Step F4a results (run live)
+- Real scans on the user's machine: X-ray and heatmaps load from the signed links, every heatmap chip switches the image, Overlay and the opacity slider work, the Gemini summary appears after "Writing the summary", the caution box shows, the PDF and audit record download with the backend's file names.
+- Browser-tested in the sandbox against a test backend (31 checks): scan list of 8 with Load more and the case-number filter; partial result banner naming the unfinished steps; template summary; report error with Try again; download error message; no heatmaps (turned off) and no stored images; a failed model's 14 findings listed as unavailable; expired image links refetch the analysis once, not in a loop; unknown id shows "Scan not found"; no horizontal scroll at 390 px.
+- The side panels scroll with the page (sticky panels were tried and removed: they felt detached under the floating nav).
+- The PDF still has the pre-design layout until B1; the audit record is JSON until B2.
+- `typecheck`, `lint` and `build` clean on the pushed code.
 
 ### Plan
 1. ✅ **F1:** Next.js setup, theme and fonts, glass nav and phone menu, footer, typed API client, backend health check.
 2. ✅ **F2:** Clerk sign-in and register styled like the design; the API client sends the session token; `AUTH_MODE=clerk` locally.
 3. ✅ **F3:** New scan: case form from fixed lists, upload box, screening progress card, every error state.
-4. ⏳ **F4:** Results: scan list, X-ray viewer (side by side and overlay), findings by band, Report, Ask and Details tabs, downloads.
-5. ⬜ **F5:** Landing and History pages, phone layouts, final checks; then deploy.
+4. ✅ **F4a:** Results: scan list, X-ray viewer (side by side and overlay), findings by band, Report tab, PDF and audit downloads.
+5. ⏳ **F4b:** Ask and Details tabs, phone layout of the results page, optional Delete this scan.
+6. ⬜ **F5:** Landing and History pages, phone layouts, final checks; then deploy.
