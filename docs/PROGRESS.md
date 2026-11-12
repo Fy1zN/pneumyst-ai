@@ -2,7 +2,7 @@
 
 Working notes for continuing the project in a new session. The [README](../README.md) is the public description and holds the full results; this file records **where things are, how we work, and why decisions were made**.
 
-_Last updated: 12 Nov 2026 · `main` at frontend step F4a. **The v1 ML work and the backend are complete; the frontend is being built in steps (F1 to F4a done).**_
+_Last updated: 12 Nov 2026 · `main` at frontend step F4b. **The v1 ML work and the backend are complete; the frontend is being built in steps (F1 to F4 done).**_
 
 ---
 
@@ -33,7 +33,8 @@ _Last updated: 12 Nov 2026 · `main` at frontend step F4a. **The v1 ML work and 
 | Frontend F2: Clerk sign-in, protected pages, account menu, signed API calls | ✅ done, run live (email, Google and GitHub sign-in) | `frontend/src/proxy.ts`, `frontend/src/app/sign-in/`, `frontend/src/lib/use-api.ts` |
 | Frontend F3: New scan page (case form, upload, progress card, every error state) | ✅ done, browser-tested against a test backend | `frontend/src/components/scan/`, `frontend/src/lib/case-fields.ts`, `frontend/src/lib/scan-errors.ts` |
 | Frontend F4a: results page (scan list, X-ray viewer, findings by band, Report tab, downloads) | ✅ done, run live on a real scan | `frontend/src/components/results/`, `frontend/src/lib/format.ts` |
-| **Frontend F4b: Ask and Details tabs, phone layout of results** | ⏳ **next** | `frontend/src/components/results/` |
+| Frontend F4b: Ask and Details tabs, delete scan, phone viewer | ✅ done, run live (Ask with Gemini, delete) | `frontend/src/components/results/ask-tab.tsx`, `details-tab.tsx` |
+| **Frontend: chest X-ray check in the browser, then F5** | ⏳ **next** | `frontend/src/lib/`, `frontend/src/components/scan/` |
 | Frontend F5, deploy | ⬜ not started | — |
 
 ## 2. Environment
@@ -272,10 +273,19 @@ The design lives in Figma and is exported to [`docs/design/`](design/README.md) 
 - The PDF still has the pre-design layout until B1; the audit record is JSON until B2.
 - `typecheck`, `lint` and `build` clean on the pushed code.
 
+### Step F4b results (run live)
+- No backend change: `DELETE /analyses/{id}` already existed (owner-only, removes the row, audit events and stored images; covered by `test_analyses.py` and `test_storage.py`) and CORS already allowed DELETE.
+- Run live: Ask answers from Gemini with the tools it checked; an off-topic question ("which AI is replying") is refused as designed; Details shows case context, WHO screen, models, timings; Delete removes the scan and returns to New scan.
+- Browser-tested in the sandbox against a test backend (40 checks): question length 3 to 500, Enter to send, suggestion chips, refused answers, busy then Try again, 429 with minutes, JSON body and Bearer token sent; chat kept when switching tabs; Details rows, failed stages and timings; delete dialog (Esc, Keep it, error keeps the dialog open); phone X-ray / Heatmap switch with no horizontal scroll at 390 px; both pictures side by side from 640 px.
+- Fixed: stage names in the partial-result banner now read the backend's real keys (`tb_densenet121_v2`, `explain:nih_densenet121_v1`), which F4a had mapped from short names that never occur.
+- Style decisions from the user: question bubbles in mint with a light green border; the delete dialog and button use the brand green, not red.
+- Found while testing: a screenshot of the app was screened and got 8 "possible" findings, because the models score any image. Next step adds a browser-side chest X-ray check (greyscale, white share, dark share, flat areas) before upload; the API itself still accepts any image, so this is a convenience check, not a guarantee.
+
 ### Plan
 1. ✅ **F1:** Next.js setup, theme and fonts, glass nav and phone menu, footer, typed API client, backend health check.
 2. ✅ **F2:** Clerk sign-in and register styled like the design; the API client sends the session token; `AUTH_MODE=clerk` locally.
 3. ✅ **F3:** New scan: case form from fixed lists, upload box, screening progress card, every error state.
 4. ✅ **F4a:** Results: scan list, X-ray viewer (side by side and overlay), findings by band, Report tab, PDF and audit downloads.
-5. ⏳ **F4b:** Ask and Details tabs, phone layout of the results page, optional Delete this scan.
-6. ⬜ **F5:** Landing and History pages, phone layouts, final checks; then deploy.
+5. ✅ **F4b:** Ask and Details tabs, phone layout of the results page, Delete this scan.
+6. ⏳ **X-ray check:** reject screenshots, documents and colour photos in the browser before upload.
+7. ⬜ **F5:** Landing and History pages, phone layouts, final checks; then deploy.

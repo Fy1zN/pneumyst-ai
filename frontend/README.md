@@ -36,8 +36,8 @@ Open `http://localhost:3000`.
 | `src/lib/use-api.ts` | `useApi()`: `apiFetch` with the signed-in user's Clerk token; `useDownload()` saves protected files (PDF, audit record) |
 | `src/lib/clerk-theme.ts` | Styling and wording for Clerk's sign-in and register cards |
 | `src/components/scan/` | New scan page: case form, upload box, progress and error cards |
-| `src/components/results/` | Results page: scan list, X-ray viewer, findings by band, report panel |
-| `src/lib/format.ts` | Percentages, dates, band colours and grouping, stage names |
+| `src/components/results/` | Results page: scan list, X-ray viewer, findings by band, Report, Ask and Details tabs, delete |
+| `src/lib/format.ts` | Percentages, dates, band colours and grouping, model and stage names, durations |
 | `src/lib/case-fields.ts` | The 19 case fields and their choices, typed against the API |
 | `src/lib/scan-errors.ts` | Backend error codes turned into the wording users see |
 | `src/lib/api-types.ts` | Generated, do not edit by hand |
