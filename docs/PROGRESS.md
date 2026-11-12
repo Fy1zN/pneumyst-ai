@@ -2,7 +2,7 @@
 
 Working notes for continuing the project in a new session. The [README](../README.md) is the public description and holds the full results; this file records **where things are, how we work, and why decisions were made**.
 
-_Last updated: 12 Nov 2026 · `main` at frontend step F4b. **The v1 ML work and the backend are complete; the frontend is being built in steps (F1 to F4 done).**_
+_Last updated: 12 Nov 2026 · `main` at frontend step F4b plus the browser X-ray check. **The v1 ML work and the backend are complete; the frontend is being built in steps (F1 to F4 done).**_
 
 ---
 
@@ -34,7 +34,8 @@ _Last updated: 12 Nov 2026 · `main` at frontend step F4b. **The v1 ML work and 
 | Frontend F3: New scan page (case form, upload, progress card, every error state) | ✅ done, browser-tested against a test backend | `frontend/src/components/scan/`, `frontend/src/lib/case-fields.ts`, `frontend/src/lib/scan-errors.ts` |
 | Frontend F4a: results page (scan list, X-ray viewer, findings by band, Report tab, downloads) | ✅ done, run live on a real scan | `frontend/src/components/results/`, `frontend/src/lib/format.ts` |
 | Frontend F4b: Ask and Details tabs, delete scan, phone viewer | ✅ done, run live (Ask with Gemini, delete) | `frontend/src/components/results/ask-tab.tsx`, `details-tab.tsx` |
-| **Frontend: chest X-ray check in the browser, then F5** | ⏳ **next** | `frontend/src/lib/`, `frontend/src/components/scan/` |
+| Frontend: chest X-ray check in the browser before upload | ✅ done, browser-tested on 98 images | `frontend/src/lib/xray-check.ts`, `frontend/src/components/scan/scan-form.tsx` |
+| **Frontend F5: landing, history, 404, phone checks** | ⏳ **next** | `frontend/src/app/` |
 | Frontend F5, deploy | ⬜ not started | — |
 
 ## 2. Environment
@@ -281,11 +282,18 @@ The design lives in Figma and is exported to [`docs/design/`](design/README.md) 
 - Style decisions from the user: question bubbles in mint with a light green border; the delete dialog and button use the brand green, not red.
 - Found while testing: a screenshot of the app was screened and got 8 "possible" findings, because the models score any image. Next step adds a browser-side chest X-ray check (greyscale, white share, dark share, flat areas) before upload; the API itself still accepts any image, so this is a convenience check, not a guarantee.
 
+### X-ray check results
+- Four rules on a 256 px copy decoded in the browser: more than 2% clearly coloured pixels after cancelling the image's overall tint, more than 50% near-white, under 1% dark, or over 85% dark. A blocked image shows the reason in the upload box and a link "It is a chest X-ray, use it anyway"; choosing another file resets it.
+- Tested in Chromium on 98 images: all 41 X-rays pass (4 real X-rays from the user's scans, with white borders, black side bars, burned-in labels, low contrast, extra brightness, JPEG, and 9 phone photos of film with warm, cool and noisy casts) and all 57 non-X-rays are blocked (every design screen, the PDF pages, EDA and training charts, the lung artwork, a heatmap, editor screenshots, the screenshot that had been screened).
+- The first version blocked phone photos of film with a colour cast; cancelling the overall tint fixed it.
+- Limits: greyscale photos of other things and X-rays of other body parts still pass, and the API accepts any image when called directly. The real-X-ray sample is small, so the limits still need checking on the original datasets.
+- `typecheck`, `lint` and `build` clean on the pushed code.
+
 ### Plan
 1. ✅ **F1:** Next.js setup, theme and fonts, glass nav and phone menu, footer, typed API client, backend health check.
 2. ✅ **F2:** Clerk sign-in and register styled like the design; the API client sends the session token; `AUTH_MODE=clerk` locally.
 3. ✅ **F3:** New scan: case form from fixed lists, upload box, screening progress card, every error state.
 4. ✅ **F4a:** Results: scan list, X-ray viewer (side by side and overlay), findings by band, Report tab, PDF and audit downloads.
 5. ✅ **F4b:** Ask and Details tabs, phone layout of the results page, Delete this scan.
-6. ⏳ **X-ray check:** reject screenshots, documents and colour photos in the browser before upload.
-7. ⬜ **F5:** Landing and History pages, phone layouts, final checks; then deploy.
+6. ✅ **X-ray check:** reject screenshots, documents and colour photos in the browser before upload.
+7. ⏳ **F5:** Landing and History pages, phone layouts, final checks; then deploy.

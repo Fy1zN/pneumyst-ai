@@ -1029,7 +1029,7 @@ Statuses move through **Not started → In progress → Implemented → Tested �
 - Models may learn shortcuts (for example, chest drains for pneumothorax); heatmaps are used to check for this but cannot rule it out.
 - Occlusion Sensitivity is a model-attribution aid, not a causal explanation and not clinical evidence. The hottest spot moves with patch size about half the time, so maps are shown as regions; localization is weakest for Pneumothorax (18% of boxes) and Atelectasis (23%).
 - No prospective or clinical validation has been performed.
-- The app does not yet check that an upload is a chest X-ray; any readable image of reasonable size and shape is scored.
+- The New scan page rejects images that are clearly not chest X-rays (colour, mostly white, no dark areas, almost all black), but the check runs in the browser and can be overruled; greyscale photos of other things, X-rays of other body parts, and direct API calls are still scored.
 - TBX11K classes differ strongly in acquisition statistics (brightness, contrast, sharpness), so internal TB scores may overstate real performance; the external Shenzhen / Montgomery test is the primary TB measure.
 - TBX11K has no patient IDs, so two different scans of one patient could fall into different splits; only identical or near-identical images can be detected.
 - Some findings have few or ambiguous training cases. Hernia has only 15 validation positives and is shown as insufficient data (its test AUROC of 0.901 on 86 cases suggests it could be enabled after proper validation); Infiltration (0.696) and Pneumonia (0.722) are the weakest findings.

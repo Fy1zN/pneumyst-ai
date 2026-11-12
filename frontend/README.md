@@ -39,6 +39,7 @@ Open `http://localhost:3000`.
 | `src/components/results/` | Results page: scan list, X-ray viewer, findings by band, Report, Ask and Details tabs, delete |
 | `src/lib/format.ts` | Percentages, dates, band colours and grouping, model and stage names, durations |
 | `src/lib/case-fields.ts` | The 19 case fields and their choices, typed against the API |
+| `src/lib/xray-check.ts` | Browser check that a chosen image looks like a chest X-ray, before upload |
 | `src/lib/scan-errors.ts` | Backend error codes turned into the wording users see |
 | `src/lib/api-types.ts` | Generated, do not edit by hand |
 
