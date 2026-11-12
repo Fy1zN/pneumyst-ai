@@ -4,6 +4,8 @@ export type Health = components["schemas"]["HealthResponse"];
 export type AnalysisPage = components["schemas"]["AnalysisPage"];
 export type Analysis = components["schemas"]["AnalysisResponse"];
 export type Finding = components["schemas"]["Finding"];
+export type Report = components["schemas"]["ReportResponse"];
+export type AnalysisSummary = components["schemas"]["AnalysisSummary"];
 type ErrorBody = components["schemas"]["ErrorResponse"];
 
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/+$/, "");
@@ -24,7 +26,7 @@ export class ApiError extends Error {
 
 type Options = RequestInit & { token?: string | null };
 
-export async function apiFetch<T>(path: string, { token, headers, ...init }: Options = {}): Promise<T> {
+async function request(path: string, { token, headers, ...init }: Options): Promise<Response> {
   let response: Response;
   try {
     response = await fetch(`${API_URL}${path}`, {
@@ -46,7 +48,18 @@ export async function apiFetch<T>(path: string, { token, headers, ...init }: Opt
       Number.isFinite(retry) && retry > 0 ? retry : null,
     );
   }
-  return (await response.json()) as T;
+  return response;
+}
+
+export async function apiFetch<T>(path: string, options: Options = {}): Promise<T> {
+  return (await (await request(path, options)).json()) as T;
+}
+
+/** A file from the backend (PDF, audit record) with the name the backend suggests. */
+export async function apiFile(path: string, options: Options = {}): Promise<{ blob: Blob; filename: string | null }> {
+  const response = await request(path, options);
+  const match = /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") ?? "");
+  return { blob: await response.blob(), filename: match ? match[1] : null };
 }
 
 export function getHealth(signal?: AbortSignal): Promise<Health> {
