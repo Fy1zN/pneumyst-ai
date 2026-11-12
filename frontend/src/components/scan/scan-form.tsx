@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { CaseNumberInput, SelectInput } from "@/components/scan/fields";
 import { FailedDialog, NotSavedDialog, ProgressDialog, SessionDialog } from "@/components/scan/scan-dialogs";
@@ -19,6 +19,7 @@ import {
 } from "@/lib/case-fields";
 import { checkFile, describe } from "@/lib/scan-errors";
 import { useApi } from "@/lib/use-api";
+import { checkXray } from "@/lib/xray-check";
 
 type Phase =
   | { name: "idle" }
@@ -82,6 +83,10 @@ export function ScanForm() {
   const [values, setValues] = useState<CaseValues>({});
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
+  // The X-ray check only guesses, so the user can overrule it for the chosen file.
+  const [notXray, setNotXray] = useState(false);
+  const [useAnyway, setUseAnyway] = useState(false);
+  const checkedFile = useRef<File | null>(null);
   const [caseNumberError, setCaseNumberError] = useState<string | null>(null);
   const [heatmaps, setHeatmaps] = useState(true);
   const [phase, setPhase] = useState<Phase>({ name: "idle" });
@@ -99,8 +104,26 @@ export function ScanForm() {
   const set = (key: keyof CaseValues) => (value: string) => setValues((current) => ({ ...current, [key]: value }));
 
   const chooseFile = (next: File | null) => {
+    const problem = next ? checkFile(next) : null;
     setFile(next);
-    setFileError(next ? checkFile(next) : null);
+    setFileError(problem);
+    setNotXray(false);
+    setUseAnyway(false);
+    checkedFile.current = next;
+    if (!next || problem) return;
+    void checkXray(next).then((found) => {
+      // A slower check for an earlier file must not mark the file chosen since.
+      if (found && checkedFile.current === next) {
+        setFileError(found);
+        setNotXray(true);
+      }
+    });
+  };
+
+  const overrule = () => {
+    setUseAnyway(true);
+    setNotXray(false);
+    setFileError(null);
   };
 
   const setCaseNumber = (value: string) => {
@@ -122,6 +145,12 @@ export function ScanForm() {
     const problem = checkFile(file);
     if (problem) {
       setFileError(problem);
+      return;
+    }
+    const notChest = useAnyway ? null : await checkXray(file);
+    if (notChest) {
+      setFileError(notChest);
+      setNotXray(true);
       return;
     }
 
@@ -219,6 +248,11 @@ export function ScanForm() {
           </h2>
           <p className="mt-2 mb-6 text-sm text-muted">One frontal chest X-ray per scan.</p>
           <UploadBox file={file} error={fileError} disabled={busy} onFile={chooseFile} />
+          {notXray && !busy && (
+            <button type="button" onClick={overrule} className="mt-3 self-center text-sm font-semibold text-brand-green underline underline-offset-4">
+              It is a chest X-ray, use it anyway
+            </button>
+          )}
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
             <span className="hidden md:inline-flex">
               <HeatmapToggle on={heatmaps} onChange={setHeatmaps} disabled={busy} />
